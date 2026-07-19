@@ -1,5 +1,6 @@
 import http from "node:http";
 import { DatabaseSync } from "node:sqlite";
+import { joinedResumeText, sectionResumeText } from "./lib/resume-parser.mjs";
 import { mkdirSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -56,6 +57,14 @@ db.exec(`CREATE TABLE IF NOT EXISTS resumes (
   uploaded_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 )`);
+db.exec(`CREATE TABLE IF NOT EXISTS target_companies (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  company TEXT NOT NULL UNIQUE,
+  tier TEXT NOT NULL,
+  compensation_band TEXT NOT NULL,
+  career_url TEXT NOT NULL,
+  notes TEXT
+)`);
 
 const DEFAULT_PROFILE = {
   firstName: "", lastName: "", email: "", phone: "", location: "",
@@ -69,38 +78,52 @@ const DEFAULT_PROFILE = {
 const DEFAULT_SOURCES = [
   ["Figma", "figma"], ["Stripe", "stripe"],
   ["Cloudflare", "cloudflare"], ["Datadog", "datadog"],
+  ["Airbnb", "airbnb"], ["Coinbase", "coinbase"], ["Databricks", "databricks"],
+  ["LinkedIn", "linkedin"], ["Rubrik", "rubrik"],
+];
+const DEFAULT_TARGETS = [
+  ["Stripe", "Elite tier", "₹80L - ₹1Cr+ TC", "https://stripe.com/jobs/search?office_locations=Asia-Pacific--Bangalore"],
+  ["Google (India)", "Elite tier", "₹65L - ₹95L TC", "https://www.google.com/about/careers/applications/jobs/results/?location=India"],
+  ["Meta (Facebook India)", "Elite tier", "₹70L - ₹1Cr TC", "https://www.metacareers.com/jobs/"],
+  ["Airbnb", "Elite tier", "₹70L - ₹90L TC", "https://careers.airbnb.com/positions/"],
+  ["Rubrik", "Elite tier", "₹75L - ₹90L TC", "https://www.rubrik.com/company/careers"],
+  ["Coinbase", "Elite tier", "₹70L - ₹90L TC", "https://www.coinbase.com/careers/positions"],
+  ["Booking.com", "Elite tier", "₹60L - ₹85L TC", "https://careers.booking.com/careers"],
+  ["Databricks", "Elite tier", "₹70L - ₹95L TC", "https://www.databricks.com/company/careers/open-positions"],
+  ["Snowflake", "Elite tier", "₹70L - ₹95L TC", "https://careers.snowflake.com/us/en/search-results"],
+  ["Tower Research Capital", "Elite tier", "₹80L - ₹1Cr+ TC", "https://www.tower-research.com/careers/"],
+  ["Quadeye", "Elite tier", "₹80L - ₹1Cr+ TC", "https://www.quadeye.com/careers"],
+  ["Uber", "Upper mid tier", "₹55L - ₹80L TC", "https://www.uber.com/global/en/careers/list/"],
+  ["LinkedIn", "Upper mid tier", "₹55L - ₹75L TC", "https://careers.linkedin.com/"],
+  ["Salesforce", "Upper mid tier", "₹50L - ₹75L TC", "https://careers.salesforce.com/en/jobs/"],
+  ["ServiceNow", "Upper mid tier", "₹50L - ₹75L TC", "https://careers.servicenow.com/careers"],
+  ["Microsoft (India)", "Upper mid tier", "₹50L - ₹75L TC", "https://jobs.careers.microsoft.com/global/en/search"],
+  ["Intuit", "Upper mid tier", "₹50L - ₹70L TC", "https://jobs.intuit.com/"],
+  ["Walmart Global Tech", "Upper mid tier", "₹45L - ₹65L TC", "https://walmart.wd5.myworkdayjobs.com/WalmartExternal"],
+  ["Goldman Sachs", "Upper mid tier", "₹50L - ₹75L TC", "https://higher.gs.com/roles"],
+  ["JPMorgan Chase", "Upper mid tier", "₹45L - ₹65L TC", "https://careers.jpmorgan.com/us/en/home"],
+  ["American Express", "Upper mid tier", "₹45L - ₹65L TC", "https://aexp.eightfold.ai/careers"],
+  ["Morgan Stanley", "Upper mid tier", "₹50L - ₹75L TC", "https://www.morganstanley.com/careers/career-opportunities-search"],
+  ["Amazon (India)", "Product and growth tier", "₹45L - ₹65L TC", "https://www.amazon.jobs/en/"],
+  ["Atlassian", "Product and growth tier", "₹45L - ₹65L TC", "https://www.atlassian.com/company/careers/all-jobs"],
+  ["Adobe", "Product and growth tier", "₹45L - ₹65L TC", "https://careers.adobe.com/us/en"],
+  ["Flipkart", "Product and growth tier", "₹40L - ₹65L TC", "https://www.flipkartcareers.com/jobslist"],
+  ["Swiggy", "Product and growth tier", "₹40L - ₹65L TC", "https://careers.swiggy.com/"],
+  ["Zomato", "Product and growth tier", "₹40L - ₹65L TC", "https://www.zomato.com/careers"],
+  ["PayPal", "Product and growth tier", "₹45L - ₹65L TC", "https://careers.pypl.com/"],
+  ["Razorpay", "Product and growth tier", "₹40L - ₹65L TC", "https://razorpay.com/jobs/"],
 ];
 
 db.prepare("INSERT OR IGNORE INTO profile (id, data, updated_at) VALUES (1, ?, ?)").run(JSON.stringify(DEFAULT_PROFILE), new Date().toISOString());
 const insertSource = db.prepare("INSERT OR IGNORE INTO sources (company, provider, token) VALUES (?, 'greenhouse', ?)");
 for (const [company, token] of DEFAULT_SOURCES) insertSource.run(company, token);
+const insertTarget = db.prepare("INSERT OR IGNORE INTO target_companies (company, tier, compensation_band, career_url) VALUES (?, ?, ?, ?)");
+for (const target of DEFAULT_TARGETS) insertTarget.run(...target);
+db.prepare("UPDATE target_companies SET notes = 'Dream organization' WHERE company = 'JPMorgan Chase' AND (notes IS NULL OR notes = '')").run();
 
 function getProfile() {
   const row = db.prepare("SELECT data FROM profile WHERE id = 1").get();
   return { ...DEFAULT_PROFILE, ...JSON.parse(row.data) };
-}
-
-function sectionResumeText(text) {
-  const clean = text.replace(/\r/g, "").replace(/\n{3,}/g, "\n\n").trim();
-  const headings = [...clean.matchAll(/^(EDUCATION|TECHNICAL SKILLS|EXPERIENCE|PROJECTS)\s*$/gm)];
-  const sections = { headline: headings.length ? clean.slice(0, headings[0].index).trim() : "", education: "", skills: "", experience: "", projects: "", additional: "" };
-  for (let index = 0; index < headings.length; index += 1) {
-    const heading = headings[index];
-    const start = heading.index + heading[0].length;
-    const end = headings[index + 1]?.index ?? clean.length;
-    const key = heading[1] === "TECHNICAL SKILLS" ? "skills" : heading[1].toLowerCase();
-    sections[key] = clean.slice(start, end).trim();
-  }
-  if (!headings.length) sections.additional = clean;
-  return sections;
-}
-
-function joinedResumeText(sections) {
-  const labels = { headline: "", education: "EDUCATION", skills: "TECHNICAL SKILLS", experience: "EXPERIENCE", projects: "PROJECTS", additional: "ADDITIONAL" };
-  return Object.entries(labels).map(([key, label]) => {
-    const value = String(sections[key] || "").trim();
-    return value ? `${label ? `${label}\n` : ""}${value}` : "";
-  }).filter(Boolean).join("\n\n");
 }
 
 function extractProfile(text, current) {
@@ -192,6 +215,26 @@ function rescoreAll(profile) {
     update.run(match.score, match.verdict, JSON.stringify(match), job.id);
   }
 }
+
+function repairStoredResume() {
+  const row = db.prepare("SELECT * FROM resumes WHERE id = 1").get();
+  if (!row) return;
+  const stored = JSON.parse(row.sections || "{}");
+  const reparsed = sectionResumeText(row.raw_text || "");
+  const storedCount = Object.values(stored).filter((value) => String(value || "").trim()).length;
+  const reparsedCount = Object.values(reparsed).filter((value) => String(value || "").trim()).length;
+  const hasRecoveredHeader = !String(stored.headline || "").trim() && String(reparsed.headline || "").trim();
+  if (reparsedCount <= storedCount && !hasRecoveredHeader) return;
+  const rawText = joinedResumeText(reparsed);
+  const now = new Date().toISOString();
+  db.prepare("UPDATE resumes SET raw_text = ?, sections = ?, updated_at = ? WHERE id = 1")
+    .run(rawText, JSON.stringify(reparsed), now);
+  const profile = extractProfile(rawText, getProfile());
+  db.prepare("UPDATE profile SET data = ?, updated_at = ? WHERE id = 1").run(JSON.stringify(profile), now);
+  rescoreAll(profile);
+}
+
+repairStoredResume();
 
 async function syncSource(source, profile) {
   try {
@@ -315,6 +358,20 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/api/sources") {
       return json(res, 200, db.prepare("SELECT * FROM sources ORDER BY company").all());
+    }
+    if (req.method === "GET" && url.pathname === "/api/targets") {
+      const rows = db.prepare(`SELECT target_companies.*, sources.id AS source_id,
+        sources.provider, sources.last_synced_at, sources.last_error,
+        COUNT(jobs.id) AS job_count
+        FROM target_companies
+        LEFT JOIN sources ON sources.company = target_companies.company AND sources.enabled = 1
+        LEFT JOIN jobs ON jobs.source_id = sources.id
+        GROUP BY target_companies.id
+        ORDER BY CASE target_companies.tier
+          WHEN 'Elite tier' THEN 1
+          WHEN 'Upper mid tier' THEN 2
+          ELSE 3 END, target_companies.company`).all();
+      return json(res, 200, rows);
     }
     if (req.method === "POST" && url.pathname === "/api/sources") {
       const incoming = await body(req);

@@ -2,8 +2,8 @@
 
 import {
   ArrowUpRight, Bookmark, BriefcaseBusiness, Check, ChevronRight, CircleAlert,
-  Database, FilePenLine, FileText, GraduationCap, LayoutDashboard, MapPin, Plus,
-  RefreshCw, Search, Settings2, Sparkles, Upload, UserRound, WandSparkles, X,
+  Database, ExternalLink, FilePenLine, FileText, GraduationCap, LayoutDashboard,
+  MapPin, Plus, RefreshCw, Search, Settings2, Sparkles, Upload, UserRound, WandSparkles, X,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
@@ -374,13 +374,18 @@ function Field({ label, value, onChange, type = "text", wide = false, placeholde
 
 function SourcesView({ onSync, syncing }: { onSync: () => void; syncing: boolean }) {
   const [sources, setSources] = useState<{ id: number; company: string; token: string; last_synced_at?: string; last_error?: string }[]>([]);
+  const [targets, setTargets] = useState<{ id: number; company: string; tier: string; compensation_band: string; career_url: string; source_id?: number; job_count: number; last_error?: string; notes?: string }[]>([]);
   const [company, setCompany] = useState(""); const [token, setToken] = useState("");
-  const reload = useCallback(() => api<typeof sources>("/sources").then(setSources).catch(() => {}), []);
+  const reload = useCallback(() => Promise.all([api<typeof sources>("/sources"), api<typeof targets>("/targets")]).then(([nextSources, nextTargets]) => { setSources(nextSources); setTargets(nextTargets); }).catch(() => {}), []);
   useEffect(() => { reload(); }, [reload]);
   async function add(event: FormEvent) { event.preventDefault(); await api("/sources", { method: "POST", body: JSON.stringify({ company, token }) }); setCompany(""); setToken(""); reload(); }
-  return <div className="settings-page"><header className="settings-header"><div><p className="eyebrow">Discovery</p><h1>Greenhouse sources</h1><p>Add a company’s Greenhouse board token and JobPilot will track its public roles.</p></div><button className="button primary" onClick={onSync} disabled={syncing}><RefreshCw size={16} className={syncing ? "spin" : ""} /> Sync all</button></header>
+  const tiers = ["Elite tier", "Upper mid tier", "Product and growth tier"];
+  return <div className="settings-page"><header className="settings-header"><div><p className="eyebrow">Discovery</p><h1>Your target companies</h1><p>All 30 target portals are here. Where a public feed is available, its live roles are included when you sync.</p></div><button className="button primary" onClick={async () => { await onSync(); reload(); }} disabled={syncing}><RefreshCw size={16} className={syncing ? "spin" : ""} /> Sync live feeds</button></header>
+    <section className="target-overview"><div><strong>{targets.length}</strong><span>target portals</span></div><div><strong>{targets.filter((target) => target.source_id).length}</strong><span>live Greenhouse feeds</span></div><div><strong>{targets.reduce((sum, target) => sum + Number(target.job_count || 0), 0).toLocaleString()}</strong><span>roles indexed</span></div></section>
+    {tiers.map((tier) => <section className="tier-section" key={tier}><div className="tier-heading"><h2>{tier}</h2><span>{targets.filter((target) => target.tier === tier).length} companies</span></div><div className="target-grid">{targets.filter((target) => target.tier === tier).map((target) => <article className="target-card" key={target.id}><div className="target-card-top"><span className="company-logo">{initials(target.company)}</span><div><strong>{target.company}</strong><span>{target.compensation_band}</span>{target.notes && <small className="target-note">{target.notes}</small>}</div></div><div className="target-card-bottom"><small className={target.source_id ? "feed-live" : "feed-portal"}>{target.source_id ? `${target.job_count} live roles` : "Official portal"}</small><button onClick={() => window.open(target.career_url, "_blank", "noopener,noreferrer")}>Open portal <ExternalLink size={13} /></button></div></article>)}</div></section>)}
+    <section className="custom-source-section"><div><h2>Add another Greenhouse board</h2><p>Use this for companies beyond your target list.</p></div>
     <form className="add-source" onSubmit={add}><Field label="Company" value={company} onChange={setCompany} placeholder="Acme" /><Field label="Board token" value={token} onChange={setToken} placeholder="acme" /><button className="button primary"><Plus size={16} />Add board</button></form>
-    <div className="source-list">{sources.map((source) => <div className="source-row" key={source.id}><span className="company-logo">{initials(source.company)}</span><div><strong>{source.company}</strong><span>boards.greenhouse.io/{source.token}</span></div><small className={source.last_error ? "error" : ""}>{source.last_error || (source.last_synced_at ? `Synced ${relativeDate(source.last_synced_at)}` : "Ready to sync")}</small></div>)}</div>
+    <div className="source-list">{sources.map((source) => <div className="source-row" key={source.id}><span className="company-logo">{initials(source.company)}</span><div><strong>{source.company}</strong><span>boards.greenhouse.io/{source.token}</span></div><small className={source.last_error ? "error" : ""}>{source.last_error || (source.last_synced_at ? `Synced ${relativeDate(source.last_synced_at)}` : "Ready to sync")}</small></div>)}</div></section>
   </div>;
 }
 
