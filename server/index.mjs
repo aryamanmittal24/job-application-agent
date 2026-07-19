@@ -6,6 +6,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { PDFParse } from "pdf-parse";
 import { scoreJob, stripHtml } from "./lib/matcher.mjs";
+import { tailorResume } from "./lib/resume-tailor.mjs";
 
 const PORT = Number(process.env.JOB_AGENT_API_PORT || 4010);
 const DB_PATH = resolve(process.env.JOB_AGENT_DB || "data/job-agent.sqlite");
@@ -64,6 +65,13 @@ db.exec(`CREATE TABLE IF NOT EXISTS target_companies (
   compensation_band TEXT NOT NULL,
   career_url TEXT NOT NULL,
   notes TEXT
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS tailored_resumes (
+  job_id INTEGER PRIMARY KEY,
+  keywords TEXT NOT NULL DEFAULT '[]',
+  draft_text TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(job_id) REFERENCES jobs(id)
 )`);
 
 const DEFAULT_PROFILE = {
@@ -403,6 +411,30 @@ const server = http.createServer(async (req, res) => {
         SUM(CASE WHEN status = 'applied' THEN 1 ELSE 0 END) AS applied
         FROM jobs`).get();
       return json(res, 200, row);
+    }
+    const tailorMatch = url.pathname.match(/^\/api\/jobs\/(\d+)\/tailored-resume$/);
+    if (tailorMatch) {
+      const jobId = Number(tailorMatch[1]);
+      const job = db.prepare("SELECT * FROM jobs WHERE id = ?").get(jobId);
+      if (!job) return json(res, 404, { error: "Job not found" });
+      const resume = db.prepare("SELECT raw_text FROM resumes WHERE id = 1").get();
+      if (!resume) return json(res, 400, { error: "Import a base résumé before tailoring it" });
+      const saved = db.prepare("SELECT keywords, draft_text, updated_at FROM tailored_resumes WHERE job_id = ?").get(jobId);
+      if (req.method === "GET") {
+        const analysis = tailorResume(job, resume.raw_text);
+        return json(res, 200, { ...analysis, keywords: saved ? JSON.parse(saved.keywords) : analysis.suggested, draft: saved?.draft_text || analysis.draft, updated_at: saved?.updated_at || null });
+      }
+      if (req.method === "PUT") {
+        const incoming = await body(req);
+        const keywords = Array.isArray(incoming.keywords) ? incoming.keywords.map(String).slice(0, 12) : [];
+        const draftText = String(incoming.draft || "").trim();
+        if (!draftText) return json(res, 400, { error: "Your tailored résumé cannot be empty" });
+        const now = new Date().toISOString();
+        db.prepare(`INSERT INTO tailored_resumes (job_id, keywords, draft_text, updated_at) VALUES (?, ?, ?, ?)
+          ON CONFLICT(job_id) DO UPDATE SET keywords=excluded.keywords, draft_text=excluded.draft_text, updated_at=excluded.updated_at`)
+          .run(jobId, JSON.stringify(keywords), draftText, now);
+        return json(res, 200, { ok: true, updated_at: now });
+      }
     }
     const statusMatch = url.pathname.match(/^\/api\/jobs\/(\d+)\/status$/);
     if (req.method === "PATCH" && statusMatch) {

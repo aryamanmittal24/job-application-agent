@@ -3,7 +3,7 @@
 import {
   ArrowUpRight, Bookmark, BriefcaseBusiness, Check, ChevronRight, CircleAlert,
   Database, ExternalLink, FilePenLine, FileText, GraduationCap, LayoutDashboard,
-  MapPin, Plus, RefreshCw, Search, Settings2, Sparkles, Upload, UserRound, WandSparkles, X,
+  MapPin, Plus, RefreshCw, Search, Settings2, SlidersHorizontal, Sparkles, Upload, UserRound, WandSparkles, X,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
@@ -64,8 +64,14 @@ export function JobDashboard() {
   const [stats, setStats] = useState<Stats>({ total: 0, strong: 0, saved: 0, applied: 0 });
   const [profile, setProfile] = useState<Profile>(emptyProfile);
   const [selected, setSelected] = useState<Job | null>(null);
+  const [tailoring, setTailoring] = useState<Job | null>(null);
   const [query, setQuery] = useState("");
   const [scoreFilter, setScoreFilter] = useState(0);
+  const [locationFilter, setLocationFilter] = useState("all");
+  const [levelFilter, setLevelFilter] = useState("all");
+  const [employmentFilter, setEmploymentFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("all");
+  const [filterTimestamp] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [online, setOnline] = useState(true);
@@ -93,9 +99,19 @@ export function JobDashboard() {
 
   const visibleJobs = useMemo(() => {
     const needle = query.toLowerCase().trim();
-    if (!needle) return jobs;
-    return jobs.filter((job) => `${job.title} ${job.company} ${job.location}`.toLowerCase().includes(needle));
-  }, [jobs, query]);
+    return jobs.filter((job) => {
+      const text = `${job.title} ${job.company} ${job.location} ${job.description}`.toLowerCase();
+      const age = job.published_at || job.updated_at;
+      const days = age ? (filterTimestamp - new Date(age).getTime()) / 86_400_000 : Infinity;
+      const isEntry = /intern|junior|associate|new grad|graduate|engineer i\b/.test(text);
+      const isSenior = /senior|staff|principal|lead/.test(text);
+      const locationOK = locationFilter === "all" || (locationFilter === "remote" ? /remote|hybrid/.test(text) : text.includes(locationFilter));
+      const levelOK = levelFilter === "all" || (levelFilter === "entry" ? isEntry : levelFilter === "senior" ? isSenior : !isEntry && !isSenior);
+      const employmentOK = employmentFilter === "all" || /full.?time/.test(text);
+      const dateOK = dateFilter === "all" || (dateFilter === "7d" ? days <= 7 : days <= 30);
+      return (!needle || text.includes(needle)) && locationOK && levelOK && employmentOK && dateOK;
+    });
+  }, [jobs, query, locationFilter, levelFilter, employmentFilter, dateFilter, filterTimestamp]);
 
   async function sync() {
     setSyncing(true); setNotice("");
@@ -191,6 +207,14 @@ export function JobDashboard() {
               <Metric label="Applied" value={stats.applied} detail="Marked by you" />
             </section>
 
+            <section className="job-filters" aria-label="Job filters">
+              <FilterSelect label="Location" value={locationFilter} onChange={setLocationFilter} options={[["all", "Any location"], ["bengaluru", "Bengaluru"], ["india", "India"], ["remote", "Remote / hybrid"]]} />
+              <FilterSelect label="Seniority" value={levelFilter} onChange={setLevelFilter} options={[["all", "Any level"], ["entry", "Entry level"], ["mid", "Mid level"], ["senior", "Senior+"]]} />
+              <FilterSelect label="Type" value={employmentFilter} onChange={setEmploymentFilter} options={[["all", "Any type"], ["full-time", "Full-time"]]} />
+              <FilterSelect label="Date posted" value={dateFilter} onChange={setDateFilter} options={[["all", "Any time"], ["7d", "Past 7 days"], ["30d", "Past 30 days"]]} />
+              <button className="filter-reset" onClick={() => { setLocationFilter("all"); setLevelFilter("all"); setEmploymentFilter("all"); setDateFilter("all"); }}><SlidersHorizontal size={15} /> Reset filters</button>
+            </section>
+
             <section className="list-section">
               <div className="list-heading">
                 <div><h2>Recommended roles</h2><span>{visibleJobs.length} shown</span></div>
@@ -215,7 +239,8 @@ export function JobDashboard() {
         )}
       </main>
 
-      {selected && <JobPanel job={selected} onClose={() => setSelected(null)} onSave={() => updateStatus(selected, selected.status === "saved" ? "new" : "saved")} onOpen={() => openApplication(selected)} onApplied={() => updateStatus(selected, "applied")} />}
+      {selected && <JobPanel job={selected} onClose={() => setSelected(null)} onSave={() => updateStatus(selected, selected.status === "saved" ? "new" : "saved")} onOpen={() => openApplication(selected)} onApplied={() => updateStatus(selected, "applied")} onTailor={() => setTailoring(selected)} />}
+      {tailoring && <TailorResumeModal job={tailoring} onClose={() => setTailoring(null)} />}
     </div>
   );
 }
@@ -236,7 +261,11 @@ function EmptyJobs({ onSync, onProfile }: { onSync: () => void; onProfile: () =>
   return <div className="empty-state"><BriefcaseBusiness size={28} /><h3>No roles in this view yet</h3><p>Sync your boards or complete your profile to begin matching.</p><div><button className="button secondary" onClick={onProfile}>Complete profile</button><button className="button primary" onClick={onSync}>Sync jobs</button></div></div>;
 }
 
-function JobPanel({ job, onClose, onSave, onOpen, onApplied }: { job: Job; onClose: () => void; onSave: () => void; onOpen: () => void; onApplied: () => void }) {
+function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: [string, string][] }) {
+  return <label className="filter-select"><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value)}>{options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}</select></label>;
+}
+
+function JobPanel({ job, onClose, onSave, onOpen, onApplied, onTailor }: { job: Job; onClose: () => void; onSave: () => void; onOpen: () => void; onApplied: () => void; onTailor: () => void }) {
   return <div className="drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <aside className="job-drawer" aria-label={`${job.title} details`}>
       <div className="drawer-head"><button onClick={onClose} aria-label="Close details"><X size={19} /></button><button className={job.status === "saved" ? "is-saved" : ""} onClick={onSave}><Bookmark size={17} />{job.status === "saved" ? "Saved" : "Save"}</button></div>
@@ -247,9 +276,24 @@ function JobPanel({ job, onClose, onSave, onOpen, onApplied }: { job: Job; onClo
       <section className="drawer-section"><h3>Why it matches</h3><ul>{(job.match.reasons || []).map((reason) => <li key={reason}><Check size={15} />{reason}</li>)}</ul></section>
       {(job.match.matchedSkills || []).length > 0 && <section className="drawer-section"><h3>Skills found</h3><div className="drawer-skills">{job.match.matchedSkills!.map((skill) => <span key={skill}>{skill}</span>)}</div></section>}
       <section className="drawer-section"><h3>About the role</h3><p className="description">{job.description || "Open the official application to read the full description."}</p></section>
-      <div className="drawer-actions"><button className="button secondary" onClick={onApplied}><Check size={16} />Mark applied</button><button className="button primary" onClick={onOpen}>Open application <ArrowUpRight size={16} /></button></div>
+      <div className="drawer-actions"><button className="button secondary" onClick={onTailor}><WandSparkles size={16} />Tailor résumé</button><button className="button secondary" onClick={onApplied}><Check size={16} />Mark applied</button><button className="button primary" onClick={onOpen}>Open application <ArrowUpRight size={16} /></button></div>
     </aside>
   </div>;
+}
+
+type TailoredResume = { matched: string[]; suggested: string[]; keywords: string[]; draft: string; updated_at?: string | null };
+
+function TailorResumeModal({ job, onClose }: { job: Job; onClose: () => void }) {
+  const [data, setData] = useState<TailoredResume | null>(null);
+  const [keywords, setKeywords] = useState<string[]>([]);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  useEffect(() => { api<TailoredResume>(`/jobs/${job.id}/tailored-resume`).then((next) => { setData(next); setKeywords(next.keywords); setDraft(next.draft); }).catch((error) => setMessage(error instanceof Error ? error.message : "Could not prepare this résumé")); }, [job.id]);
+  function toggle(keyword: string) { setKeywords((current) => current.includes(keyword) ? current.filter((item) => item !== keyword) : [...current, keyword]); }
+  async function save() { setSaving(true); try { await api(`/jobs/${job.id}/tailored-resume`, { method: "PUT", body: JSON.stringify({ keywords, draft }) }); setMessage("Tailored version saved locally for this role."); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not save this version"); } finally { setSaving(false); } }
+  function download() { const url = URL.createObjectURL(new Blob([draft], { type: "text/plain" })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `${job.company}-${job.title}-tailored-resume.txt`.replace(/[^a-z0-9.-]+/gi, "-"); anchor.click(); URL.revokeObjectURL(url); }
+  return <div className="tailor-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="tailor-modal" role="dialog" aria-modal="true" aria-label="Tailor résumé"><header><div><p className="eyebrow">Truthful tailoring</p><h2>Customize for this role</h2><p>{job.company} · {job.title}</p></div><button onClick={onClose} aria-label="Close"><X size={19} /></button></header>{message && <div className="notice"><Check size={15} />{message}</div>}{!data ? <div className="tailor-loading">Preparing keyword comparison…</div> : <><div className="tailor-score"><div><strong>{job.score}%</strong><span>current match</span></div><p>Choose only terms you can genuinely support. JobPilot never invents experience or silently changes your base résumé.</p></div><section className="tailor-section"><h3>Already supported</h3><div className="keyword-list">{data.matched.length ? data.matched.map((keyword) => <span className="keyword matched" key={keyword}><Check size={12} />{keyword}</span>) : <span className="muted">No direct keyword overlap detected.</span>}</div></section><section className="tailor-section"><h3>Review before adding</h3><p>These terms occur in the job description but not your base résumé. Select only what is accurate.</p><div className="keyword-list">{data.suggested.length ? data.suggested.map((keyword) => <button className={`keyword ${keywords.includes(keyword) ? "selected" : ""}`} onClick={() => toggle(keyword)} key={keyword}>{keywords.includes(keyword) && <Check size={12} />}{keyword}</button>) : <span className="muted">Your résumé already covers the notable role keywords.</span>}</div></section><section className="tailor-section"><h3>Tailored draft</h3><textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={14} /></section><footer><span>Base PDF remains unchanged.</span><div><button className="button secondary" onClick={download} disabled={!draft}>Download text</button><button className="button primary" onClick={save} disabled={saving || !draft}>{saving ? "Saving…" : "Save this version"}</button></div></footer></>}</section></div>;
 }
 
 type ResumeRecord = {
