@@ -27,7 +27,7 @@ function mapValue(label, profile) {
     [/postal|zip code|postcode/, profile.postalCode],
     [/current company|most recent company|employer/, profile.currentCompany],
     [/company name/, profile.currentCompany],
-    [/current title|job title|most recent title|^title$/, profile.currentTitle],
+    [/current title|job title|most recent title|\btitle\b/, profile.currentTitle],
     [/school|college|university|institution/, profile.school],
     [/degree|field of study|major/, profile.degree],
     [/graduation|graduated/, profile.graduationYear],
@@ -40,6 +40,12 @@ function mapValue(label, profile) {
     const question = normalize(saved.question);
     if (question && (label.includes(question) || question.includes(label)) && saved.answer) return saved.answer;
   }
+  return "";
+}
+
+function specialValue(field, profile) {
+  if (/^start-date-month/.test(field.id || "")) return profile.currentStartMonth || "";
+  if (/^start-date-year/.test(field.id || "")) return profile.currentStartYear || "";
   return "";
 }
 
@@ -70,6 +76,10 @@ async function fillApplication() {
   let resumeFile = null;
 
   for (const field of fields) {
+    if (field.type === "checkbox" && /^current-role-/.test(field.id || "") && profile.currentCompany) {
+      if (!field.checked) { field.click(); filled += 1; }
+      continue;
+    }
     if (field.disabled || field.readOnly || field.type === "checkbox" || field.type === "radio") { skipped += 1; continue; }
     const label = fieldLabel(field);
     if (!label || BLOCKED_QUESTIONS.test(label)) { skipped += 1; continue; }
@@ -87,7 +97,7 @@ async function fillApplication() {
       } catch { skipped += 1; }
       continue;
     }
-    const value = mapValue(label, profile);
+    const value = specialValue(field, profile) || mapValue(label, profile);
     if (!value) { skipped += 1; continue; }
     if (field instanceof HTMLSelectElement) {
       const option = [...field.options].find((item) => normalize(item.textContent).includes(normalize(value)) || normalize(item.value) === normalize(value));
@@ -96,7 +106,14 @@ async function fillApplication() {
       field.dispatchEvent(new Event("change", { bubbles: true }));
       filled += 1;
     } else {
-      try { setNativeValue(field, value); filled += 1; }
+      try {
+        setNativeValue(field, value);
+        if (/select__input|start-date-month|candidate-location|country/.test(field.className || "") || /^start-date-/.test(field.id || "")) {
+          field.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+          field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        }
+        filled += 1;
+      }
       catch { skipped += 1; }
     }
   }

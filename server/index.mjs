@@ -77,7 +77,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS tailored_resumes (
 const DEFAULT_PROFILE = {
   firstName: "", lastName: "", email: "", phone: "", location: "",
   linkedin: "", github: "", portfolio: "", yearsExperience: 0,
-  country: "", postalCode: "", currentCompany: "", currentTitle: "",
+  country: "", postalCode: "", currentCompany: "", currentTitle: "", currentStartMonth: "", currentStartYear: "",
   school: "", degree: "", graduationYear: "", workAuthorization: "",
   requiresSponsorship: "",
   preferredTitles: ["software engineer"], preferredLocations: ["remote"],
@@ -158,7 +158,17 @@ db.prepare("UPDATE target_companies SET notes = 'Dream organization' WHERE compa
 
 function getProfile() {
   const row = db.prepare("SELECT data FROM profile WHERE id = 1").get();
-  return { ...DEFAULT_PROFILE, ...JSON.parse(row.data) };
+  const profile = { ...DEFAULT_PROFILE, ...JSON.parse(row.data) };
+  if ((!profile.currentStartMonth || !profile.currentStartYear) && profile.resumeText) {
+    const experience = sectionResumeText(profile.resumeText).experience;
+    const currentStart = experience.match(/\b([A-Z][a-z]{2,8})\s+(\d{4})\s*[–-]\s*Present/i);
+    if (currentStart) {
+      const monthNames = { Jan: "January", Feb: "February", Mar: "March", Apr: "April", May: "May", Jun: "June", Jul: "July", Aug: "August", Sep: "September", Oct: "October", Nov: "November", Dec: "December" };
+      profile.currentStartMonth = monthNames[currentStart[1]] || currentStart[1];
+      profile.currentStartYear = currentStart[2];
+    }
+  }
+  return profile;
 }
 
 function extractProfile(text, current) {
@@ -174,6 +184,7 @@ function extractProfile(text, current) {
   const currentTitle = titleLocation?.[1]?.trim() || titleLine;
   const country = location.includes(",") ? location.split(",").at(-1)?.trim() || "" : "";
   const dateMatch = sections.experience.match(/([A-Z][a-z]{2})\s+(\d{4})\s*-\s*Present/i);
+  const currentStart = sections.experience.match(/\b([A-Z][a-z]{2,8})\s+(\d{4})\s*[–-]\s*Present/i);
   let yearsExperience = Number(current.yearsExperience || 0);
   if (dateMatch) {
     const months = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
@@ -197,6 +208,8 @@ function extractProfile(text, current) {
     country: country || current.country,
     currentCompany: currentCompany || current.currentCompany,
     currentTitle: currentTitle || current.currentTitle,
+    currentStartMonth: currentStart ? ({ Jan: "January", Feb: "February", Mar: "March", Apr: "April", May: "May", Jun: "June", Jul: "July", Aug: "August", Sep: "September", Oct: "October", Nov: "November", Dec: "December" }[currentStart[1]] || currentStart[1]) : current.currentStartMonth || "",
+    currentStartYear: currentStart?.[2] || current.currentStartYear || "",
     school: school || current.school,
     degree: degree || current.degree,
     graduationYear: graduationYear || current.graduationYear,
