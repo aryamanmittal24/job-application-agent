@@ -80,8 +80,9 @@ export function JobDashboard() {
   const load = useCallback(async () => {
     try {
       const status = view === "saved" ? "saved" : view === "applications" ? "applied" : "all";
+      const sourceLocation = locationFilter === "all" ? "" : locationFilter === "remote" ? "remote" : locationFilter;
       const [jobRows, nextStats, nextProfile] = await Promise.all([
-        api<Job[]>(`/jobs?status=${status}&minScore=${scoreFilter}&limit=100`),
+        api<Job[]>(`/jobs?status=${status}&minScore=${scoreFilter}&location=${encodeURIComponent(sourceLocation)}&limit=200`),
         api<Stats>("/stats"), api<Profile>("/profile"),
       ]);
       setJobs(jobRows); setStats(nextStats); setProfile(nextProfile); setOnline(true);
@@ -90,7 +91,7 @@ export function JobDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [view, scoreFilter]);
+  }, [view, scoreFilter, locationFilter]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void load(); }, 0);
@@ -105,7 +106,7 @@ export function JobDashboard() {
       const days = age ? (filterTimestamp - new Date(age).getTime()) / 86_400_000 : Infinity;
       const isEntry = /intern|junior|associate|new grad|graduate|engineer i\b/.test(text);
       const isSenior = /senior|staff|principal|lead/.test(text);
-      const locationOK = locationFilter === "all" || (locationFilter === "remote" ? /remote|hybrid/.test(text) : text.includes(locationFilter));
+      const locationOK = locationFilter === "all" || (locationFilter === "remote" ? /remote|hybrid/.test(text) : locationFilter === "bengaluru" ? /bengaluru|bangalore/.test(text) : text.includes(locationFilter));
       const levelOK = levelFilter === "all" || (levelFilter === "entry" ? isEntry : levelFilter === "senior" ? isSenior : !isEntry && !isSenior);
       const employmentOK = employmentFilter === "all" || /full.?time/.test(text);
       const dateOK = dateFilter === "all" || (dateFilter === "7d" ? days <= 7 : days <= 30);
@@ -417,19 +418,19 @@ function Field({ label, value, onChange, type = "text", wide = false, placeholde
 }
 
 function SourcesView({ onSync, syncing }: { onSync: () => void; syncing: boolean }) {
-  const [sources, setSources] = useState<{ id: number; company: string; token: string; last_synced_at?: string; last_error?: string }[]>([]);
+  const [sources, setSources] = useState<{ id: number; company: string; token: string; provider: string; last_synced_at?: string; last_error?: string }[]>([]);
   const [targets, setTargets] = useState<{ id: number; company: string; tier: string; compensation_band: string; career_url: string; source_id?: number; job_count: number; last_error?: string; notes?: string }[]>([]);
-  const [company, setCompany] = useState(""); const [token, setToken] = useState("");
+  const [company, setCompany] = useState(""); const [token, setToken] = useState(""); const [provider, setProvider] = useState("greenhouse");
   const reload = useCallback(() => Promise.all([api<typeof sources>("/sources"), api<typeof targets>("/targets")]).then(([nextSources, nextTargets]) => { setSources(nextSources); setTargets(nextTargets); }).catch(() => {}), []);
   useEffect(() => { reload(); }, [reload]);
-  async function add(event: FormEvent) { event.preventDefault(); await api("/sources", { method: "POST", body: JSON.stringify({ company, token }) }); setCompany(""); setToken(""); reload(); }
-  const tiers = ["Elite tier", "Upper mid tier", "Product and growth tier"];
+  async function add(event: FormEvent) { event.preventDefault(); await api("/sources", { method: "POST", body: JSON.stringify({ company, token, provider }) }); setCompany(""); setToken(""); reload(); }
+  const tiers = [...new Set(targets.map((target) => target.tier))];
   return <div className="settings-page"><header className="settings-header"><div><p className="eyebrow">Discovery</p><h1>Your target companies</h1><p>All 30 target portals are here. Where a public feed is available, its live roles are included when you sync.</p></div><button className="button primary" onClick={async () => { await onSync(); reload(); }} disabled={syncing}><RefreshCw size={16} className={syncing ? "spin" : ""} /> Sync live feeds</button></header>
     <section className="target-overview"><div><strong>{targets.length}</strong><span>target portals</span></div><div><strong>{targets.filter((target) => target.source_id).length}</strong><span>live Greenhouse feeds</span></div><div><strong>{targets.reduce((sum, target) => sum + Number(target.job_count || 0), 0).toLocaleString()}</strong><span>roles indexed</span></div></section>
     {tiers.map((tier) => <section className="tier-section" key={tier}><div className="tier-heading"><h2>{tier}</h2><span>{targets.filter((target) => target.tier === tier).length} companies</span></div><div className="target-grid">{targets.filter((target) => target.tier === tier).map((target) => <article className="target-card" key={target.id}><div className="target-card-top"><span className="company-logo">{initials(target.company)}</span><div><strong>{target.company}</strong><span>{target.compensation_band}</span>{target.notes && <small className="target-note">{target.notes}</small>}</div></div><div className="target-card-bottom"><small className={target.source_id ? "feed-live" : "feed-portal"}>{target.source_id ? `${target.job_count} live roles` : "Official portal"}</small><button onClick={() => window.open(target.career_url, "_blank", "noopener,noreferrer")}>Open portal <ExternalLink size={13} /></button></div></article>)}</div></section>)}
-    <section className="custom-source-section"><div><h2>Add another Greenhouse board</h2><p>Use this for companies beyond your target list.</p></div>
-    <form className="add-source" onSubmit={add}><Field label="Company" value={company} onChange={setCompany} placeholder="Acme" /><Field label="Board token" value={token} onChange={setToken} placeholder="acme" /><button className="button primary"><Plus size={16} />Add board</button></form>
-    <div className="source-list">{sources.map((source) => <div className="source-row" key={source.id}><span className="company-logo">{initials(source.company)}</span><div><strong>{source.company}</strong><span>boards.greenhouse.io/{source.token}</span></div><small className={source.last_error ? "error" : ""}>{source.last_error || (source.last_synced_at ? `Synced ${relativeDate(source.last_synced_at)}` : "Ready to sync")}</small></div>)}</div></section>
+    <section className="custom-source-section"><div><h2>Connect another public board</h2><p>Greenhouse and Lever publish free job feeds. Paste the board name from their public careers URL.</p></div>
+    <form className="add-source" onSubmit={add}><Field label="Company" value={company} onChange={setCompany} placeholder="Acme" /><label className="field"><span>Provider</span><select value={provider} onChange={(event) => setProvider(event.target.value)}><option value="greenhouse">Greenhouse</option><option value="lever">Lever</option></select></label><Field label="Board token" value={token} onChange={setToken} placeholder={provider === "lever" ? "acme" : "acme"} /><button className="button primary"><Plus size={16} />Connect</button></form>
+    <div className="source-list">{sources.map((source) => <div className="source-row" key={source.id}><span className="company-logo">{initials(source.company)}</span><div><strong>{source.company}</strong><span>{source.provider === "lever" ? `jobs.lever.co/${source.token}` : `boards.greenhouse.io/${source.token}`}</span></div><small className={source.last_error ? "error" : ""}>{source.last_error || (source.last_synced_at ? `Synced ${relativeDate(source.last_synced_at)}` : "Ready to sync")}</small></div>)}</div></section>
   </div>;
 }
 

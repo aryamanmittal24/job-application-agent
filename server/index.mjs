@@ -84,10 +84,11 @@ const DEFAULT_PROFILE = {
   excludedCompanies: [], skills: [], resumeText: "", answers: [],
 };
 const DEFAULT_SOURCES = [
-  ["Figma", "figma"], ["Stripe", "stripe"],
-  ["Cloudflare", "cloudflare"], ["Datadog", "datadog"],
-  ["Airbnb", "airbnb"], ["Coinbase", "coinbase"], ["Databricks", "databricks"],
-  ["LinkedIn", "linkedin"], ["Rubrik", "rubrik"],
+  ["Figma", "greenhouse", "figma"], ["Stripe", "greenhouse", "stripe"],
+  ["Cloudflare", "greenhouse", "cloudflare"], ["Datadog", "greenhouse", "datadog"],
+  ["Airbnb", "greenhouse", "airbnb"], ["Coinbase", "greenhouse", "coinbase"], ["Databricks", "greenhouse", "databricks"],
+  ["LinkedIn", "greenhouse", "linkedin"], ["Rubrik", "greenhouse", "rubrik"],
+  ["CRED", "lever", "cred"], ["Meesho", "lever", "meesho"],
 ];
 const DEFAULT_TARGETS = [
   ["Stripe", "Elite tier", "₹80L - ₹1Cr+ TC", "https://stripe.com/jobs/search?office_locations=Asia-Pacific--Bangalore"],
@@ -120,11 +121,25 @@ const DEFAULT_TARGETS = [
   ["Zomato", "Product and growth tier", "₹40L - ₹65L TC", "https://www.zomato.com/careers"],
   ["PayPal", "Product and growth tier", "₹45L - ₹65L TC", "https://careers.pypl.com/"],
   ["Razorpay", "Product and growth tier", "₹40L - ₹65L TC", "https://razorpay.com/jobs/"],
+  ["CRED", "SDE-II ₹40L+ watchlist", "Potential ₹40L+ TC", "https://careers.cred.club/"],
+  ["Meesho", "SDE-II ₹40L+ watchlist", "Potential ₹40L+ TC", "https://www.meesho.io/careers"],
+  ["NVIDIA", "SDE-II ₹40L+ watchlist", "Potential ₹40L+ TC", "https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite"],
+  ["Qualcomm", "SDE-II ₹40L+ watchlist", "Potential ₹40L+ TC", "https://www.qualcomm.com/company/careers"],
+  ["Visa", "SDE-II ₹40L+ watchlist", "Potential ₹40L+ TC", "https://corporate.visa.com/en/careers.html"],
+  ["Mastercard", "SDE-II ₹40L+ watchlist", "Potential ₹40L+ TC", "https://careers.mastercard.com/us/en"],
+  ["Cisco", "SDE-II ₹40L+ watchlist", "Potential ₹40L+ TC", "https://jobs.cisco.com/"],
+  ["SAP Labs", "SDE-II ₹40L+ watchlist", "Potential ₹40L+ TC", "https://www.sap.com/about/careers.html"],
+  ["Oracle", "SDE-II ₹40L+ watchlist", "Potential ₹40L+ TC", "https://careers.oracle.com/"],
+  ["Nutanix", "SDE-II ₹40L+ watchlist", "Potential ₹40L+ TC", "https://www.nutanix.com/careers"],
+  ["Arista Networks", "SDE-II ₹40L+ watchlist", "Potential ₹40L+ TC", "https://www.arista.com/en/careers"],
+  ["Palo Alto Networks", "SDE-II ₹40L+ watchlist", "Potential ₹40L+ TC", "https://jobs.paloaltonetworks.com/"],
+  ["Apple", "SDE-II ₹40L+ watchlist", "Potential ₹40L+ TC", "https://jobs.apple.com/en-in/search"],
+  ["Broadcom", "SDE-II ₹40L+ watchlist", "Potential ₹40L+ TC", "https://careers.broadcom.com/"],
 ];
 
 db.prepare("INSERT OR IGNORE INTO profile (id, data, updated_at) VALUES (1, ?, ?)").run(JSON.stringify(DEFAULT_PROFILE), new Date().toISOString());
-const insertSource = db.prepare("INSERT OR IGNORE INTO sources (company, provider, token) VALUES (?, 'greenhouse', ?)");
-for (const [company, token] of DEFAULT_SOURCES) insertSource.run(company, token);
+const insertSource = db.prepare("INSERT OR IGNORE INTO sources (company, provider, token) VALUES (?, ?, ?)");
+for (const [company, provider, token] of DEFAULT_SOURCES) insertSource.run(company, provider, token);
 const insertTarget = db.prepare("INSERT OR IGNORE INTO target_companies (company, tier, compensation_band, career_url) VALUES (?, ?, ?, ?)");
 for (const target of DEFAULT_TARGETS) insertTarget.run(...target);
 db.prepare("UPDATE target_companies SET notes = 'Dream organization' WHERE company = 'JPMorgan Chase' AND (notes IS NULL OR notes = '')").run();
@@ -246,9 +261,28 @@ repairStoredResume();
 
 async function syncSource(source, profile) {
   try {
-    const response = await fetch(`https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(source.token)}/jobs?content=true`);
-    if (!response.ok) throw new Error(`Greenhouse returned ${response.status}`);
-    const payload = await response.json();
+    let postings = [];
+    if (source.provider === "greenhouse") {
+      const response = await fetch(`https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(source.token)}/jobs?content=true`);
+      if (!response.ok) throw new Error(`Greenhouse returned ${response.status}`);
+      const payload = await response.json();
+      postings = (payload.jobs || []).map((item) => ({
+        id: item.id, title: item.title, location: item.location?.name, description: item.content,
+        url: item.absolute_url, publishedAt: item.first_published, updatedAt: item.updated_at,
+      }));
+    } else if (source.provider === "lever") {
+      const response = await fetch(`https://api.lever.co/v0/postings/${encodeURIComponent(source.token)}?mode=json`);
+      if (!response.ok) throw new Error(`Lever returned ${response.status}`);
+      const payload = await response.json();
+      postings = (payload || []).map((item) => ({
+        id: item.id, title: item.text, location: item.categories?.location || item.categories?.allLocations?.join(", "),
+        description: item.descriptionPlain || item.description || "", url: item.hostedUrl || item.applyUrl,
+        publishedAt: item.createdAt ? new Date(item.createdAt).toISOString() : null,
+        updatedAt: item.updatedAt ? new Date(item.updatedAt).toISOString() : null,
+      }));
+    } else {
+      throw new Error(`Unsupported public provider: ${source.provider}`);
+    }
     const upsert = db.prepare(`INSERT INTO jobs (
       source_id, external_id, company, title, location, url, description,
       published_at, updated_at, discovered_at, score, verdict, match_data
@@ -259,18 +293,18 @@ async function syncSource(source, profile) {
       updated_at=excluded.updated_at, score=excluded.score,
       verdict=excluded.verdict, match_data=excluded.match_data`);
     let imported = 0;
-    for (const item of payload.jobs || []) {
+    for (const item of postings) {
       const job = {
         company: source.company,
         title: item.title || "Untitled role",
-        location: item.location?.name || "Not specified",
-        description: stripHtml(item.content || ""),
+        location: item.location || "Not specified",
+        description: stripHtml(item.description || ""),
       };
       const match = scoreJob(job, profile);
       upsert.run(
         source.id, String(item.id), source.company, job.title, job.location,
-        item.absolute_url, job.description, item.first_published || null,
-        item.updated_at || null, new Date().toISOString(), match.score,
+        item.url, job.description, item.publishedAt || null,
+        item.updatedAt || null, new Date().toISOString(), match.score,
         match.verdict, JSON.stringify(match),
       );
       imported += 1;
@@ -385,8 +419,10 @@ const server = http.createServer(async (req, res) => {
       const incoming = await body(req);
       const token = String(incoming.token || "").trim().toLowerCase();
       const company = String(incoming.company || token).trim();
+      const provider = String(incoming.provider || "greenhouse").trim().toLowerCase();
       if (!token || !company) return json(res, 400, { error: "Company and board token are required" });
-      db.prepare("INSERT OR IGNORE INTO sources (company, provider, token) VALUES (?, 'greenhouse', ?)").run(company, token);
+      if (!new Set(["greenhouse", "lever"]).has(provider)) return json(res, 400, { error: "Choose Greenhouse or Lever" });
+      db.prepare("INSERT OR IGNORE INTO sources (company, provider, token) VALUES (?, ?, ?)").run(company, provider, token);
       return json(res, 201, { ok: true });
     }
     if (req.method === "POST" && url.pathname === "/api/sync") {
@@ -396,12 +432,15 @@ const server = http.createServer(async (req, res) => {
       const q = `%${(url.searchParams.get("q") || "").trim()}%`;
       const status = url.searchParams.get("status") || "all";
       const minScore = Number(url.searchParams.get("minScore") || 0);
+      const location = (url.searchParams.get("location") || "").trim().toLowerCase();
+      const locationAlias = location === "bengaluru" ? "bangalore" : location;
       const limit = Math.min(200, Number(url.searchParams.get("limit") || 80));
       const rows = db.prepare(`SELECT * FROM jobs
         WHERE score >= ? AND (? = 'all' OR status = ?)
+          AND (? = '' OR LOWER(COALESCE(location, '')) LIKE ? OR LOWER(COALESCE(location, '')) LIKE ?)
           AND (title LIKE ? OR company LIKE ? OR location LIKE ? OR description LIKE ?)
         ORDER BY score DESC, COALESCE(published_at, updated_at, discovered_at) DESC
-        LIMIT ?`).all(minScore, status, status, q, q, q, q, limit);
+        LIMIT ?`).all(minScore, status, status, location, `%${location}%`, `%${locationAlias}%`, q, q, q, q, limit);
       return json(res, 200, rows.map(publicJob));
     }
     if (req.method === "GET" && url.pathname === "/api/stats") {
