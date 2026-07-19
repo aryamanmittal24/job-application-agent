@@ -34,6 +34,17 @@ function requiredYears(text) {
   return Math.min(...matches.map((match) => Number(match[1])).filter((value) => value < 20));
 }
 
+const NON_ENGINEERING_ROLES = /\b(?:technical\s+)?(?:program|product|project|account|partner|operations|people|engineering|marketing|sales|recruiting|customer success|support|business|compliance|risk)\s+manager\b|\b(?:director|vice president|vp|recruiter|designer|analyst|consultant)\b/i;
+const TOO_SENIOR = /\b(?:staff|principal|distinguished|architect|head of)\b/i;
+const ENGINEERING_TERMS = /\b(?:software|backend|back-end|frontend|front-end|full[ -]?stack|platform|systems?|java|application|machine learning|ml|data|site reliability|sre|developer|sde)\b/i;
+
+function targetRoleDecision(title) {
+  if (NON_ENGINEERING_ROLES.test(title)) return "This is a management or non-engineering role";
+  if (TOO_SENIOR.test(title)) return "Role seniority is above the SDE I–III range";
+  if (!ENGINEERING_TERMS.test(title) || !/\b(engineer|developer|sde)\b/i.test(title)) return "This is outside your software-engineering target roles";
+  return "";
+}
+
 export function scoreJob(job, profile = {}) {
   const text = `${job.title || ""} ${job.description || ""}`.toLowerCase();
   const skills = normalizedTerms(profile);
@@ -45,11 +56,16 @@ export function scoreJob(job, profile = {}) {
   const experienceHave = Number(profile.yearsExperience || 0);
   const title = (job.title || "").toLowerCase();
 
+  const targetRoleIssue = targetRoleDecision(job.title || "");
+  if (targetRoleIssue) {
+    return { score: 0, verdict: "skip", matchedSkills, reasons: [targetRoleIssue], experienceNeeded };
+  }
+
   if (excluded.some((company) => (job.company || "").toLowerCase().includes(company))) {
     return { score: 0, verdict: "skip", matchedSkills, reasons: ["Company is on your exclusion list"], experienceNeeded };
   }
 
-  let score = profile.resumeText || skills.length ? 32 : 45;
+  let score = profile.resumeText || skills.length ? 26 : 35;
   const reasons = [];
 
   if (skills.length) {
@@ -62,13 +78,14 @@ export function scoreJob(job, profile = {}) {
 
   if (wantedTitles.length) {
     const titleMatch = wantedTitles.some((title) => (job.title || "").toLowerCase().includes(title));
-    score += titleMatch ? 16 : -9;
+    score += titleMatch ? 22 : -18;
     reasons.push(titleMatch ? "Title matches your target roles" : "Title is outside your preferred role list");
   }
 
   if (wantedLocations.length) {
     const locationText = (job.location || "").toLowerCase();
-    const locationMatch = wantedLocations.some((place) => locationText.includes(place)) || /remote/.test(locationText);
+    const foreignRemote = /remote/.test(locationText) && /usa|united states|canada|uk|europe|london/.test(locationText);
+    const locationMatch = wantedLocations.some((place) => locationText.includes(place)) || (/remote/.test(locationText) && !foreignRemote);
     score += locationMatch ? 10 : -8;
     reasons.push(locationMatch ? "Location fits your preferences" : "Location may need review");
   }
@@ -83,12 +100,9 @@ export function scoreJob(job, profile = {}) {
     }
   }
 
-  if (experienceHave && /\b(principal|staff)\b/.test(title) && experienceHave < 5) {
+  if (experienceHave && /\b(senior|lead|iii|3)\b/.test(title) && experienceHave < 3) {
     score -= 24;
-    reasons.push("Staff/principal seniority is above your current experience level");
-  } else if (experienceHave && /\b(senior|lead)\b/.test(title) && experienceHave < 3) {
-    score -= 16;
-    reasons.push("Senior/lead title may be above your current experience level");
+    reasons.push("Senior/SDE III seniority is above your current 1.9 years of experience");
   }
   if (experienceHave >= 1 && /\bintern(?:ship)?\b/.test(title) && !wantedTitles.some((wanted) => /intern/.test(wanted))) {
     score -= 20;

@@ -89,6 +89,10 @@ const DEFAULT_SOURCES = [
   ["Airbnb", "greenhouse", "airbnb"], ["Coinbase", "greenhouse", "coinbase"], ["Databricks", "greenhouse", "databricks"],
   ["LinkedIn", "greenhouse", "linkedin"], ["Rubrik", "greenhouse", "rubrik"],
   ["CRED", "lever", "cred"], ["Meesho", "lever", "meesho"],
+  ["Diligent", "greenhouse", "diligentcorporation"], ["Britive", "greenhouse", "britive"],
+  ["KnowBe4", "greenhouse", "knowbe4"], ["Dialpad", "greenhouse", "dialpad"],
+  ["Baya Systems", "greenhouse", "bayasystems"], ["Eudia", "greenhouse", "eudia"],
+  ["Point72", "greenhouse", "point72"],
 ];
 const DEFAULT_TARGETS = [
   ["Stripe", "Elite tier", "₹80L - ₹1Cr+ TC", "https://stripe.com/jobs/search?office_locations=Asia-Pacific--Bangalore"],
@@ -143,6 +147,14 @@ for (const [company, provider, token] of DEFAULT_SOURCES) insertSource.run(compa
 const insertTarget = db.prepare("INSERT OR IGNORE INTO target_companies (company, tier, compensation_band, career_url) VALUES (?, ?, ?, ?)");
 for (const target of DEFAULT_TARGETS) insertTarget.run(...target);
 db.prepare("UPDATE target_companies SET notes = 'Dream organization' WHERE company = 'JPMorgan Chase' AND (notes IS NULL OR notes = '')").run();
+{
+  const profile = getProfile();
+  if (profile.preferredTitles.length === 1 && profile.preferredTitles[0] === "software engineer") {
+    profile.preferredTitles = ["software engineer", "software development engineer", "backend engineer", "backend developer", "platform engineer", "java engineer", "sde"];
+    profile.preferredLocations = ["bengaluru", "bangalore", "india"];
+    db.prepare("UPDATE profile SET data = ?, updated_at = ? WHERE id = 1").run(JSON.stringify(profile), new Date().toISOString());
+  }
+}
 
 function getProfile() {
   const row = db.prepare("SELECT data FROM profile WHERE id = 1").get();
@@ -258,6 +270,7 @@ function repairStoredResume() {
 }
 
 repairStoredResume();
+rescoreAll(getProfile());
 
 async function syncSource(source, profile) {
   try {
@@ -437,10 +450,11 @@ const server = http.createServer(async (req, res) => {
       const limit = Math.min(200, Number(url.searchParams.get("limit") || 80));
       const rows = db.prepare(`SELECT * FROM jobs
         WHERE score >= ? AND (? = 'all' OR status = ?)
+          AND (? != 'all' OR verdict != 'skip')
           AND (? = '' OR LOWER(COALESCE(location, '')) LIKE ? OR LOWER(COALESCE(location, '')) LIKE ?)
           AND (title LIKE ? OR company LIKE ? OR location LIKE ? OR description LIKE ?)
         ORDER BY score DESC, COALESCE(published_at, updated_at, discovered_at) DESC
-        LIMIT ?`).all(minScore, status, status, location, `%${location}%`, `%${locationAlias}%`, q, q, q, q, limit);
+        LIMIT ?`).all(minScore, status, status, status, location, `%${location}%`, `%${locationAlias}%`, q, q, q, q, limit);
       return json(res, 200, rows.map(publicJob));
     }
     if (req.method === "GET" && url.pathname === "/api/stats") {

@@ -5,7 +5,8 @@ function normalize(value = "") {
 }
 
 function fieldLabel(field) {
-  const explicit = field.id ? document.querySelector(`label[for="${CSS.escape(field.id)}"]`) : null;
+  const safeId = String(field.id || "").replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+  const explicit = safeId ? document.querySelector(`label[for="${safeId}"]`) : null;
   const wrapper = field.closest("label, [data-automation-id*='formField'], .field, .application-question");
   return normalize([
     explicit?.textContent, wrapper?.querySelector("label")?.textContent,
@@ -25,7 +26,8 @@ function mapValue(label, profile) {
     [/country/, profile.country],
     [/postal|zip code|postcode/, profile.postalCode],
     [/current company|most recent company|employer/, profile.currentCompany],
-    [/current title|job title|most recent title/, profile.currentTitle],
+    [/company name/, profile.currentCompany],
+    [/current title|job title|most recent title|^title$/, profile.currentTitle],
     [/school|college|university|institution/, profile.school],
     [/degree|field of study|major/, profile.degree],
     [/graduation|graduated/, profile.graduationYear],
@@ -63,7 +65,7 @@ async function fillApplication() {
     const label = fieldLabel(field);
     if (!label || BLOCKED_QUESTIONS.test(label)) { skipped += 1; continue; }
     if (field.type === "file") {
-      if (!/resume|résumé|cv|curriculum vitae/.test(label)) { skipped += 1; continue; }
+      if (!/resume|résumé|cv|curriculum vitae/.test(label) && field.id !== "resume") { skipped += 1; continue; }
       try {
         if (!resumeFile) {
           const [metadata, fileResponse] = await Promise.all([
@@ -87,8 +89,8 @@ async function fillApplication() {
       field.dispatchEvent(new Event("change", { bubbles: true }));
       filled += 1;
     } else {
-      setNativeValue(field, value);
-      filled += 1;
+      try { setNativeValue(field, value); filled += 1; }
+      catch { skipped += 1; }
     }
   }
   return { filled, skipped };

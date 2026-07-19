@@ -33,3 +33,10 @@ test("does not recommend internships to an experienced profile unless targeted",
   const role = scoreJob({ title: "Software Engineer Intern", location: "Remote", description: "Build Java services" }, profile);
   assert.ok(role.score < 55);
 });
+
+test("excludes managers and non-engineering roles even when skills overlap", () => {
+  const profile = { skills: ["Java", "Kafka", "Python"], yearsExperience: 1.9, preferredTitles: ["software engineer"], preferredLocations: ["bengaluru"], resumeText: "Java Kafka Python engineer" };
+  const role = scoreJob({ title: "Technical Program Manager, Knowledge Systems", location: "Remote - USA", description: "Java Kafka Python systems" }, profile);
+  assert.equal(role.verdict, "skip");
+  assert.equal(role.score, 0);
+});
