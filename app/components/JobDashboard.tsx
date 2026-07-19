@@ -2,8 +2,8 @@
 
 import {
   ArrowUpRight, Bookmark, BriefcaseBusiness, Check, ChevronRight, CircleAlert,
-  Database, FileText, LayoutDashboard, MapPin, Plus, RefreshCw, Search,
-  Settings2, Sparkles, UserRound, WandSparkles, X,
+  Database, FilePenLine, FileText, GraduationCap, LayoutDashboard, MapPin, Plus,
+  RefreshCw, Search, Settings2, Sparkles, Upload, UserRound, WandSparkles, X,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
@@ -19,16 +19,21 @@ type Job = {
 type Profile = {
   firstName: string; lastName: string; email: string; phone: string; location: string;
   linkedin: string; github: string; portfolio: string; yearsExperience: number;
+  country: string; postalCode: string; currentCompany: string; currentTitle: string;
+  school: string; degree: string; graduationYear: string; workAuthorization: string;
+  requiresSponsorship: string;
   preferredTitles: string[]; preferredLocations: string[]; excludedCompanies: string[];
   skills: string[]; resumeText: string; answers: { question: string; answer: string }[];
 };
 
 type Stats = { total: number; strong: number; saved: number; applied: number };
-type View = "jobs" | "saved" | "applications" | "profile" | "sources" | "extension";
+type View = "jobs" | "saved" | "applications" | "resume" | "profile" | "sources" | "extension";
 
 const emptyProfile: Profile = {
   firstName: "", lastName: "", email: "", phone: "", location: "", linkedin: "",
   github: "", portfolio: "", yearsExperience: 0, preferredTitles: ["software engineer"],
+  country: "", postalCode: "", currentCompany: "", currentTitle: "", school: "",
+  degree: "", graduationYear: "", workAuthorization: "", requiresSponsorship: "",
   preferredLocations: ["remote"], excludedCompanies: [], skills: [], resumeText: "", answers: [],
 };
 
@@ -132,6 +137,7 @@ export function JobDashboard() {
         </nav>
         <div className="nav-label">Workspace</div>
         <nav className="nav-block" aria-label="Workspace navigation">
+          <NavButton active={view === "resume"} icon={<FilePenLine size={17} />} label="My résumé" onClick={() => setView("resume")} />
           <NavButton active={view === "profile"} icon={<UserRound size={17} />} label="My profile" onClick={() => setView("profile")} />
           <NavButton active={view === "sources"} icon={<Database size={17} />} label="Job sources" onClick={() => setView("sources")} />
           <NavButton active={view === "extension"} icon={<WandSparkles size={17} />} label="Autofill extension" onClick={() => setView("extension")} />
@@ -146,7 +152,9 @@ export function JobDashboard() {
         {!online && (
           <div className="offline-banner"><CircleAlert size={17} /><span>The local data service is not running. Start the app with <code>npm run dev:all</code>.</span></div>
         )}
-        {(view === "profile") ? (
+        {(view === "resume") ? (
+          <ResumeView onProfile={() => setView("profile")} onImported={(nextProfile) => { setProfile(nextProfile); setNotice("Résumé imported. Your profile was extracted and every job was rescored."); }} />
+        ) : (view === "profile") ? (
           <ProfileView profile={profile} onSaved={(saved) => { setProfile(saved); setNotice("Profile saved. All jobs were rescored."); }} />
         ) : view === "sources" ? (
           <SourcesView onSync={sync} syncing={syncing} />
@@ -244,6 +252,75 @@ function JobPanel({ job, onClose, onSave, onOpen, onApplied }: { job: Job; onClo
   </div>;
 }
 
+type ResumeRecord = {
+  id: number; filename: string; raw_text: string; uploaded_at: string; updated_at: string;
+  sections: Record<"headline" | "education" | "skills" | "experience" | "projects" | "additional", string>;
+};
+
+function ResumeView({ onProfile, onImported }: { onProfile: () => void; onImported: (profile: Profile) => void }) {
+  const [resume, setResume] = useState<ResumeRecord | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    api<ResumeRecord | null>("/resume").then(setResume).catch(() => setResume(null));
+  }, []);
+
+  async function importFile(file?: File) {
+    if (!file) return;
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) { setMessage("Choose a PDF résumé."); return; }
+    if (file.size > 10 * 1024 * 1024) { setMessage("Choose a PDF smaller than 10 MB."); return; }
+    setBusy(true); setMessage("Reading and structuring your résumé…");
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file);
+      });
+      const result = await api<{ resume: ResumeRecord; profile: Profile }>("/resume/import", {
+        method: "POST", body: JSON.stringify({ filename: file.name, base64: dataUrl.split(",")[1] }),
+      });
+      setResume(result.resume); onImported(result.profile); setMessage("Résumé imported and job matches updated.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not import this résumé"); }
+    finally { setBusy(false); }
+  }
+
+  async function save() {
+    if (!resume) return;
+    setBusy(true); setMessage("Saving and rescoring jobs…");
+    try {
+      const result = await api<{ resume: ResumeRecord; profile: Profile }>("/resume", { method: "PUT", body: JSON.stringify({ sections: resume.sections }) });
+      setResume(result.resume); onImported(result.profile); setMessage("Edits saved. All job matches now use this version.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Could not save résumé"); }
+    finally { setBusy(false); }
+  }
+
+  const wordCount = resume?.raw_text.trim().split(/\s+/).filter(Boolean).length || 0;
+  const sectionMeta = [
+    ["headline", "Header and links", "Your name and visible contact header"],
+    ["experience", "Experience", "Roles, dates, impact, and achievements"],
+    ["skills", "Technical skills", "Languages, systems, cloud, and AI tooling"],
+    ["projects", "Projects", "Personal, academic, and open-source work"],
+    ["education", "Education", "Schools, degrees, and graduation dates"],
+    ["additional", "Additional", "Anything that does not fit another section"],
+  ] as const;
+
+  return <div className="settings-page resume-page">
+    <header className="settings-header"><div><p className="eyebrow">Matching source</p><h1>Your editable résumé</h1><p>This is the résumé JobPilot screens against every role. Replace the PDF anytime or edit the extracted sections directly.</p></div><span className="privacy-chip"><Check size={14} /> Used for all matches</span></header>
+    <section className="resume-toolbar">
+      <div className="resume-file-icon"><FileText size={22} /></div>
+      <div className="resume-file-copy"><strong>{resume?.filename || "No résumé imported"}</strong><span>{resume ? `${wordCount.toLocaleString()} words · Updated ${relativeDate(resume.updated_at)}` : "Import a PDF to start résumé-based matching"}</span></div>
+      <label className={`button secondary upload-button ${busy ? "disabled" : ""}`}><Upload size={16} />{resume ? "Replace PDF" : "Import PDF"}<input type="file" accept="application/pdf,.pdf" disabled={busy} onChange={(event) => { void importFile(event.target.files?.[0]); event.currentTarget.value = ""; }} /></label>
+    </section>
+    {message && <div className="notice"><Sparkles size={16} />{message}<button onClick={() => setMessage("")} aria-label="Dismiss"><X size={15} /></button></div>}
+    {!resume ? <label className="resume-dropzone"><Upload size={30} /><h2>Add your base résumé</h2><p>JobPilot extracts the text, skills, experience, education, and basic details locally.</p><span className="button primary">Choose PDF</span><input type="file" accept="application/pdf,.pdf" disabled={busy} onChange={(event) => void importFile(event.target.files?.[0])} /></label> : <>
+      <div className="resume-summary"><div><span>Matching input</span><strong>{wordCount.toLocaleString()} words</strong></div><div><span>Editable sections</span><strong>{sectionMeta.filter(([key]) => resume.sections[key]?.trim()).length}</strong></div><div><span>Job database</span><strong>Rescores on save</strong></div><button onClick={onProfile}>Review extracted profile <ChevronRight size={15} /></button></div>
+      <div className="resume-editor">
+        {sectionMeta.map(([key, label, help]) => <section className="resume-section" key={key}><div><h2>{label}</h2><p>{help}</p></div><textarea rows={key === "experience" ? 16 : key === "headline" ? 3 : 8} value={resume.sections[key] || ""} onChange={(event) => setResume({ ...resume, sections: { ...resume.sections, [key]: event.target.value } })} placeholder={`Add ${label.toLowerCase()}…`} /></section>)}
+      </div>
+      <div className="resume-savebar"><div><Check size={15} /><span>Saving replaces the text used by the matcher; it does not alter your original PDF.</span></div><button className="button primary" onClick={save} disabled={busy}>{busy ? "Working…" : "Save résumé and rescore"}</button></div>
+    </>}
+  </div>;
+}
+
 function ProfileView({ profile, onSaved }: { profile: Profile; onSaved: (profile: Profile) => void }) {
   const [draft, setDraft] = useState(profile);
   const [saving, setSaving] = useState(false);
@@ -262,9 +339,23 @@ function ProfileView({ profile, onSaved }: { profile: Profile; onSaved: (profile
         <Field label="Email" type="email" value={draft.email} onChange={(value) => setDraft({ ...draft, email: value })} />
         <Field label="Phone" value={draft.phone} onChange={(value) => setDraft({ ...draft, phone: value })} />
         <Field label="Current location" value={draft.location} onChange={(value) => setDraft({ ...draft, location: value })} />
+        <Field label="Country" value={draft.country} onChange={(value) => setDraft({ ...draft, country: value })} />
+        <Field label="Postal code" value={draft.postalCode} onChange={(value) => setDraft({ ...draft, postalCode: value })} />
         <Field label="Years of experience" type="number" value={String(draft.yearsExperience)} onChange={(value) => setDraft({ ...draft, yearsExperience: Number(value) })} />
         <Field label="LinkedIn URL" value={draft.linkedin} onChange={(value) => setDraft({ ...draft, linkedin: value })} />
         <Field label="GitHub URL" value={draft.github} onChange={(value) => setDraft({ ...draft, github: value })} />
+        <Field label="Portfolio URL" value={draft.portfolio} onChange={(value) => setDraft({ ...draft, portfolio: value })} />
+      </div></section>
+      <section className="form-card"><div className="form-title"><BriefcaseBusiness size={18} /><div><h2>Employment and eligibility</h2><p>Extracted where possible; verify before using autofill.</p></div></div><div className="field-grid">
+        <Field label="Current company" value={draft.currentCompany} onChange={(value) => setDraft({ ...draft, currentCompany: value })} />
+        <Field label="Current job title" value={draft.currentTitle} onChange={(value) => setDraft({ ...draft, currentTitle: value })} />
+        <Field label="Work authorization" value={draft.workAuthorization} onChange={(value) => setDraft({ ...draft, workAuthorization: value })} placeholder="e.g. India; requires permit in EU" />
+        <Field label="Requires sponsorship?" value={draft.requiresSponsorship} onChange={(value) => setDraft({ ...draft, requiresSponsorship: value })} placeholder="Yes / No / Depends on country" />
+      </div></section>
+      <section className="form-card"><div className="form-title"><GraduationCap size={18} /><div><h2>Education</h2><p>Used only when an application asks for education details.</p></div></div><div className="field-grid">
+        <Field label="School" value={draft.school} onChange={(value) => setDraft({ ...draft, school: value })} />
+        <Field label="Degree" value={draft.degree} onChange={(value) => setDraft({ ...draft, degree: value })} />
+        <Field label="Graduation year" value={draft.graduationYear} onChange={(value) => setDraft({ ...draft, graduationYear: value })} />
       </div></section>
       <section className="form-card"><div className="form-title"><Settings2 size={18} /><div><h2>Job preferences</h2><p>Comma-separate multiple values.</p></div></div><div className="field-grid">
         <Field label="Target titles" value={draft.preferredTitles.join(", ")} onChange={(value) => setDraft({ ...draft, preferredTitles: list(value) })} />
@@ -272,14 +363,13 @@ function ProfileView({ profile, onSaved }: { profile: Profile; onSaved: (profile
         <Field label="Skills" wide value={draft.skills.join(", ")} onChange={(value) => setDraft({ ...draft, skills: list(value) })} placeholder="TypeScript, React, Python, AWS" />
         <Field label="Excluded companies" wide value={draft.excludedCompanies.join(", ")} onChange={(value) => setDraft({ ...draft, excludedCompanies: list(value) })} />
       </div></section>
-      <section className="form-card"><div className="form-title"><FileText size={18} /><div><h2>Résumé text</h2><p>Paste the text from your résumé. File upload comes in the next slice.</p></div></div><label className="field"><span>Résumé content</span><textarea rows={12} value={draft.resumeText} onChange={(event) => setDraft({ ...draft, resumeText: event.target.value })} placeholder="Paste your résumé text here…" /></label></section>
       <div className="form-actions"><span>Saving recalculates every job match.</span><button className="button primary" disabled={saving}>{saving ? "Saving…" : "Save and rescore"}</button></div>
     </form>
   </div>;
 }
 
 function Field({ label, value, onChange, type = "text", wide = false, placeholder = "" }: { label: string; value: string; onChange: (value: string) => void; type?: string; wide?: boolean; placeholder?: string }) {
-  return <label className={`field ${wide ? "wide" : ""}`}><span>{label}</span><input type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} /></label>;
+  return <label className={`field ${wide ? "wide" : ""}`}><span>{label}</span><input type={type} step={type === "number" ? "0.1" : undefined} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} /></label>;
 }
 
 function SourcesView({ onSync, syncing }: { onSync: () => void; syncing: boolean }) {

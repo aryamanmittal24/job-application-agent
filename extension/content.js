@@ -22,6 +22,13 @@ function mapValue(label, profile) {
     [/email/, profile.email],
     [/phone|mobile/, profile.phone],
     [/current location|address.*city|city|location/, profile.location],
+    [/country/, profile.country],
+    [/postal|zip code|postcode/, profile.postalCode],
+    [/current company|most recent company|employer/, profile.currentCompany],
+    [/current title|job title|most recent title/, profile.currentTitle],
+    [/school|college|university|institution/, profile.school],
+    [/degree|field of study|major/, profile.degree],
+    [/graduation|graduated/, profile.graduationYear],
     [/linkedin/, profile.linkedin],
     [/github/, profile.github],
     [/portfolio|personal website|website url/, profile.portfolio],
@@ -49,11 +56,28 @@ async function fillApplication() {
   const profile = await response.json();
   const fields = [...document.querySelectorAll("input:not([type='hidden']):not([type='submit']):not([type='button']), textarea, select")];
   let filled = 0; let skipped = 0;
+  let resumeFile = null;
 
   for (const field of fields) {
-    if (field.disabled || field.readOnly || field.type === "file" || field.type === "checkbox" || field.type === "radio") { skipped += 1; continue; }
+    if (field.disabled || field.readOnly || field.type === "checkbox" || field.type === "radio") { skipped += 1; continue; }
     const label = fieldLabel(field);
     if (!label || BLOCKED_QUESTIONS.test(label)) { skipped += 1; continue; }
+    if (field.type === "file") {
+      if (!/resume|résumé|cv|curriculum vitae/.test(label)) { skipped += 1; continue; }
+      try {
+        if (!resumeFile) {
+          const [metadata, fileResponse] = await Promise.all([
+            fetch("http://127.0.0.1:4010/api/resume").then((result) => result.json()),
+            fetch("http://127.0.0.1:4010/api/resume/file"),
+          ]);
+          if (!fileResponse.ok) throw new Error();
+          resumeFile = new File([await fileResponse.blob()], metadata.filename || "resume.pdf", { type: "application/pdf" });
+        }
+        const transfer = new DataTransfer(); transfer.items.add(resumeFile); field.files = transfer.files;
+        field.dispatchEvent(new Event("change", { bubbles: true })); filled += 1;
+      } catch { skipped += 1; }
+      continue;
+    }
     const value = mapValue(label, profile);
     if (!value) { skipped += 1; continue; }
     if (field instanceof HTMLSelectElement) {

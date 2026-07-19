@@ -139,6 +139,34 @@ h1 { margin: 0; font-family: Georgia, 'Times New Roman', serif; font-size: clamp
 .settings-header > div > p:last-child { max-width: 620px; margin: 10px 0 0; color: #727d75; font-size: 13px; line-height: 1.5; }
 .privacy-chip { display: flex; align-items: center; gap: 6px; padding: 7px 10px; border-radius: 50px; background: var(--green-soft); color: var(--green); font-size: 10px; font-weight: 750; white-space: nowrap; }
 .profile-form { display: grid; gap: 13px; }
+.resume-page { padding-bottom: 30px; }
+.resume-toolbar { min-height: 76px; display: flex; align-items: center; gap: 13px; margin-bottom: 14px; padding: 13px 15px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.resume-file-icon { width: 44px; height: 44px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 10px; background: var(--green-soft); color: var(--green); }
+.resume-file-copy { min-width: 0; display: grid; gap: 4px; }
+.resume-file-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.resume-file-copy span { color: #838d85; font-size: 10px; }
+.upload-button { margin-left: auto; position: relative; overflow: hidden; }
+.upload-button.disabled { opacity: .55; cursor: wait; }
+.upload-button input, .resume-dropzone input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.resume-dropzone { min-height: 360px; display: grid; place-items: center; align-content: center; gap: 9px; position: relative; border: 1px dashed #afbaae; border-radius: 14px; background: rgba(255,255,255,.55); color: #79837b; cursor: pointer; text-align: center; }
+.resume-dropzone:hover { border-color: var(--green); background: #f5f9f2; }
+.resume-dropzone > svg { color: var(--green); }
+.resume-dropzone h2 { margin: 4px 0 0; color: var(--ink); font-family: Georgia, 'Times New Roman', serif; font-size: 21px; font-weight: 500; }
+.resume-dropzone p { max-width: 430px; margin: 0 0 10px; font-size: 11px; line-height: 1.5; }
+.resume-summary { min-height: 76px; display: grid; grid-template-columns: repeat(3, 1fr) auto; align-items: center; gap: 10px; margin-bottom: 14px; padding: 12px 15px; border: 1px solid #d7e4d9; border-radius: 11px; background: #eff6ef; }
+.resume-summary > div { display: grid; gap: 3px; padding-right: 12px; border-right: 1px solid #d2dfd3; }
+.resume-summary span { color: #758078; font-size: 9px; }
+.resume-summary strong { font-size: 12px; }
+.resume-summary button { display: flex; align-items: center; gap: 4px; border: 0; background: transparent; color: var(--green); font-size: 10px; font-weight: 750; cursor: pointer; white-space: nowrap; }
+.resume-editor { display: grid; gap: 11px; }
+.resume-section { display: grid; grid-template-columns: 175px minmax(0, 1fr); gap: 20px; padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: white; }
+.resume-section h2 { margin: 2px 0 5px; font-size: 13px; }
+.resume-section p { margin: 0; color: #8a938d; font-size: 9px; line-height: 1.45; }
+.resume-section textarea { width: 100%; min-height: 90px; resize: vertical; padding: 12px 13px; border: 1px solid var(--line-strong); border-radius: 8px; background: #fbfcf9; color: var(--ink); font-family: var(--font-geist-sans), Arial, sans-serif; font-size: 11px; line-height: 1.6; outline: 0; }
+.resume-section textarea:focus { border-color: #789884; box-shadow: 0 0 0 3px rgba(21,76,54,.07); }
+.resume-savebar { position: sticky; bottom: 12px; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 15px; padding: 12px 14px; border: 1px solid #cbd7ca; border-radius: 11px; background: rgba(255,255,255,.94); box-shadow: 0 10px 32px rgba(23,32,25,.11); backdrop-filter: blur(12px); }
+.resume-savebar > div { display: flex; align-items: center; gap: 7px; color: #737e76; font-size: 10px; }
+.resume-savebar svg { color: #43835a; }
 .form-card { padding: 22px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
 .form-title { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 20px; }
 .form-title svg { color: var(--green); }
@@ -196,6 +224,10 @@ h1 { margin: 0; font-family: Georgia, 'Times New Roman', serif; font-size: clamp
   .job-date, .row-arrow { display: none; }
   .match-score { text-align: right; }
   .field-grid, .extension-layout { grid-template-columns: 1fr; }
+  .resume-summary { grid-template-columns: repeat(2, 1fr); }
+  .resume-summary button { grid-column: 1 / -1; }
+  .resume-section { grid-template-columns: 1fr; gap: 10px; }
+  .resume-savebar { align-items: stretch; flex-direction: column; bottom: 68px; }
   .add-source { grid-template-columns: 1fr; }
 }
 @media (max-width: 460px) {

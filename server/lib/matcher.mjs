@@ -29,7 +29,7 @@ function normalizedTerms(profile) {
 }
 
 function requiredYears(text) {
-  const matches = [...text.matchAll(/(?:at least\s+)?(\d{1,2})\+?\s*(?:years?|yrs?)(?:\s+of)?\s+(?:professional\s+)?experience/gi)];
+  const matches = [...text.matchAll(/(?:at least\s+)?(\d{1,2})\+?\s*(?:years?|yrs?)(?=[^.!?\n]{0,45}(?:experience|professional|software|developing|building|engineering))/gi)];
   if (!matches.length) return null;
   return Math.min(...matches.map((match) => Number(match[1])).filter((value) => value < 20));
 }
@@ -43,6 +43,7 @@ export function scoreJob(job, profile = {}) {
   const excluded = (profile.excludedCompanies || []).map((company) => company.toLowerCase());
   const experienceNeeded = requiredYears(text);
   const experienceHave = Number(profile.yearsExperience || 0);
+  const title = (job.title || "").toLowerCase();
 
   if (excluded.some((company) => (job.company || "").toLowerCase().includes(company))) {
     return { score: 0, verdict: "skip", matchedSkills, reasons: ["Company is on your exclusion list"], experienceNeeded };
@@ -82,7 +83,19 @@ export function scoreJob(job, profile = {}) {
     }
   }
 
+  if (experienceHave && /\b(principal|staff)\b/.test(title) && experienceHave < 5) {
+    score -= 24;
+    reasons.push("Staff/principal seniority is above your current experience level");
+  } else if (experienceHave && /\b(senior|lead)\b/.test(title) && experienceHave < 3) {
+    score -= 16;
+    reasons.push("Senior/lead title may be above your current experience level");
+  }
+  if (experienceHave >= 1 && /\bintern(?:ship)?\b/.test(title) && !wantedTitles.some((wanted) => /intern/.test(wanted))) {
+    score -= 20;
+    reasons.push("Internship seniority is below your current professional profile");
+  }
+
   score = Math.max(0, Math.min(98, score));
   const verdict = score >= 72 ? "strong" : score >= 55 ? "possible" : "review";
-  return { score, verdict, matchedSkills, reasons: reasons.slice(0, 4), experienceNeeded };
+  return { score, verdict, matchedSkills, reasons: reasons.slice(0, 5), experienceNeeded };
 }

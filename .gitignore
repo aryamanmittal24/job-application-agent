@@ -4,6 +4,7 @@ dist/
 .wrangler/
 .vinext/
 data/
+tmp/
 .env
 .env.local
 *.log

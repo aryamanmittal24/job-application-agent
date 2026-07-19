@@ -11,6 +11,9 @@ The extension never submits an application. Unknown, legal, demographic, sponsor
 - Local, deterministic résumé/job scoring with visible evidence
 - Search, score filters, saved roles, and application tracking
 - Locally stored profile and preferences
+- PDF résumé import with local text extraction
+- Editable résumé sections used as the matching source
+- Automatic extraction of contact, employment, education, experience, and skills
 - Greenhouse question-schema endpoint for future preflight checks
 - Manifest V3 extension supporting Greenhouse, Lever, Workday, Ashby, and Workable pages
 - SQLite duplicate prevention by source and external job ID
@@ -36,7 +39,7 @@ Open `http://localhost:3000`. The local API runs on `http://127.0.0.1:4010`, and
 3. Choose **Load unpacked**.
 4. Select the repository's `extension` folder.
 5. Pin **JobPilot Autofill**.
-6. Complete your JobPilot profile, open a supported application, and click **Fill application**.
+6. Import your résumé and verify the extracted profile, then open a supported application and click **Fill application**.
 
 ## Add another Greenhouse company
 
@@ -48,9 +51,16 @@ Open **Job sources** in the dashboard. The board token is normally the final pat
 npm test
 ```
 
+## Résumé and profile behavior
+
+- Importing or replacing a PDF extracts its sections and updates résumé-derived profile fields.
+- Editing résumé sections and saving them immediately rescores every stored job.
+- The original selected PDF is retained locally for résumé upload fields in supported application forms.
+- Direct section edits affect matching text but do not rewrite the layout of the original PDF. Replace the PDF when you want applications to upload a newly formatted version.
+
 ## Current boundaries
 
-- Résumé text is pasted into the profile; local PDF/DOCX upload is planned next.
+- PDF import is supported; DOCX import and visual résumé regeneration are not included yet.
 - The first discovery connector is Greenhouse. Lever and Ashby discovery are planned next.
 - Autofill uses conservative field-label mappings and a saved-answer vault. It does not bypass anti-bot controls or click Submit.
 - Node's built-in SQLite module is still marked experimental in Node 22, but keeps this personal MVP dependency-light. It can be replaced with `better-sqlite3` without changing the data model.

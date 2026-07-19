@@ -17,6 +17,8 @@ test("server-renders the JobPilot dashboard", async () => {
   assert.match(html, /<title>JobPilot — Resume-matched job search · JobPilot<\/title>/i);
   assert.match(html, /JobPilot/);
   assert.match(html, /Your best matches/);
+  assert.match(html, /My résumé/);
+  assert.match(html, /My profile/);
   assert.doesNotMatch(html, /codex-preview/);
   assert.doesNotMatch(html, /react-loading-skeleton/);
 });

@@ -1,7 +1,9 @@
 import http from "node:http";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { PDFParse } from "pdf-parse";
 import { scoreJob, stripHtml } from "./lib/matcher.mjs";
 
 const PORT = Number(process.env.JOB_AGENT_API_PORT || 4010);
@@ -45,10 +47,22 @@ db.exec(`CREATE TABLE IF NOT EXISTS jobs (
 )`);
 db.exec("CREATE INDEX IF NOT EXISTS jobs_score_idx ON jobs(score DESC)");
 db.exec("CREATE INDEX IF NOT EXISTS jobs_status_idx ON jobs(status)");
+db.exec(`CREATE TABLE IF NOT EXISTS resumes (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  filename TEXT NOT NULL,
+  original_path TEXT,
+  raw_text TEXT NOT NULL,
+  sections TEXT NOT NULL DEFAULT '{}',
+  uploaded_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+)`);
 
 const DEFAULT_PROFILE = {
   firstName: "", lastName: "", email: "", phone: "", location: "",
   linkedin: "", github: "", portfolio: "", yearsExperience: 0,
+  country: "", postalCode: "", currentCompany: "", currentTitle: "",
+  school: "", degree: "", graduationYear: "", workAuthorization: "",
+  requiresSponsorship: "",
   preferredTitles: ["software engineer"], preferredLocations: ["remote"],
   excludedCompanies: [], skills: [], resumeText: "", answers: [],
 };
@@ -66,6 +80,80 @@ function getProfile() {
   return { ...DEFAULT_PROFILE, ...JSON.parse(row.data) };
 }
 
+function sectionResumeText(text) {
+  const clean = text.replace(/\r/g, "").replace(/\n{3,}/g, "\n\n").trim();
+  const headings = [...clean.matchAll(/^(EDUCATION|TECHNICAL SKILLS|EXPERIENCE|PROJECTS)\s*$/gm)];
+  const sections = { headline: headings.length ? clean.slice(0, headings[0].index).trim() : "", education: "", skills: "", experience: "", projects: "", additional: "" };
+  for (let index = 0; index < headings.length; index += 1) {
+    const heading = headings[index];
+    const start = heading.index + heading[0].length;
+    const end = headings[index + 1]?.index ?? clean.length;
+    const key = heading[1] === "TECHNICAL SKILLS" ? "skills" : heading[1].toLowerCase();
+    sections[key] = clean.slice(start, end).trim();
+  }
+  if (!headings.length) sections.additional = clean;
+  return sections;
+}
+
+function joinedResumeText(sections) {
+  const labels = { headline: "", education: "EDUCATION", skills: "TECHNICAL SKILLS", experience: "EXPERIENCE", projects: "PROJECTS", additional: "ADDITIONAL" };
+  return Object.entries(labels).map(([key, label]) => {
+    const value = String(sections[key] || "").trim();
+    return value ? `${label ? `${label}\n` : ""}${value}` : "";
+  }).filter(Boolean).join("\n\n");
+}
+
+function extractProfile(text, current) {
+  const sections = sectionResumeText(text);
+  const firstLine = text.split("\n").map((line) => line.trim()).find(Boolean) || "";
+  const nameParts = firstLine.split(/\s+/);
+  const email = text.match(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/)?.[0] || "";
+  const phone = text.match(/(?:\+?\d[\d\s()-]{7,}\d)/)?.[0]?.replace(/\s+/g, "") || "";
+  const currentCompany = sections.experience.split("\n").map((line) => line.trim()).find(Boolean)?.split("|")[0]?.trim() || "";
+  const titleLine = sections.experience.split("\n").find((line) => /Engineer|Developer|Architect|Manager/i.test(line))?.trim() || "";
+  const titleLocation = titleLine.match(/^(.*?(?:Engineer|Developer|Architect|Manager)(?:\s+(?:I{1,4}|V|\d+))?)\s+(.+,\s*(?:India|Netherlands|Germany|France|Europe|USA|United States|Canada|UK))$/i);
+  const location = titleLocation?.[2]?.trim() || text.match(/([A-Z][A-Za-z .'-]+,\s*(?:India|Netherlands|Germany|France|Europe|USA|United States|Canada|UK))/)?.[1] || "";
+  const currentTitle = titleLocation?.[1]?.trim() || titleLine;
+  const country = location.includes(",") ? location.split(",").at(-1)?.trim() || "" : "";
+  const dateMatch = sections.experience.match(/([A-Z][a-z]{2})\s+(\d{4})\s*-\s*Present/i);
+  let yearsExperience = Number(current.yearsExperience || 0);
+  if (dateMatch) {
+    const months = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+    const start = new Date(Number(dateMatch[2]), months[dateMatch[1]] ?? 0, 1);
+    yearsExperience = Math.max(0, Math.round(((Date.now() - start.getTime()) / 31_556_952_000) * 10) / 10);
+  }
+  const skillLines = sections.skills.split("\n").filter((line) => line.includes(":"));
+  const skills = [...new Set(skillLines.flatMap((line) => line.slice(line.indexOf(":") + 1).split(",").map((skill) => skill.trim())).filter(Boolean))];
+  const degreeLine = sections.education.split("\n").find((line) => /engineering|science|technology|degree|bachelor|master/i.test(line) && /\d{4}/.test(line));
+  const graduationYear = degreeLine?.match(/(?:19|20)\d{2}/)?.[0] || "";
+  const degree = degreeLine?.replace(/\([^)]*\)/g, "").replace(/\s+\d+(?:\.\d+)?\s*(?:CGPA|GPA|Percent).*$/i, "").trim() || "";
+  const schoolLine = sections.education.split("\n").find((line) => /university|institute|college/i.test(line))?.trim() || "";
+  const school = schoolLine.replace(/\s+[A-Z][A-Za-z.'-]+,\s*[A-Z][A-Za-z .'-]+$/, "").trim();
+  return {
+    ...current,
+    firstName: nameParts[0] || current.firstName,
+    lastName: nameParts.slice(1).join(" ") || current.lastName,
+    email: email || current.email,
+    phone: phone || current.phone,
+    location: location || current.location,
+    country: country || current.country,
+    currentCompany: currentCompany || current.currentCompany,
+    currentTitle: currentTitle || current.currentTitle,
+    school: school || current.school,
+    degree: degree || current.degree,
+    graduationYear: graduationYear || current.graduationYear,
+    yearsExperience,
+    skills: skills.length ? skills : current.skills,
+    resumeText: text,
+  };
+}
+
+function getResume() {
+  const row = db.prepare("SELECT * FROM resumes WHERE id = 1").get();
+  if (!row) return null;
+  return { ...row, sections: JSON.parse(row.sections || "{}") };
+}
+
 function json(res, status, body) {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
   res.end(JSON.stringify(body));
@@ -78,6 +166,7 @@ function cors(req, res) {
   }
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Expose-Headers", "Content-Disposition");
 }
 
 async function body(req) {
@@ -167,6 +256,62 @@ const server = http.createServer(async (req, res) => {
       db.prepare("UPDATE profile SET data = ?, updated_at = ? WHERE id = 1").run(JSON.stringify(profile), new Date().toISOString());
       rescoreAll(profile);
       return json(res, 200, profile);
+    }
+    if (req.method === "GET" && url.pathname === "/api/resume") {
+      return json(res, 200, getResume());
+    }
+    if (req.method === "GET" && url.pathname === "/api/resume/file") {
+      const resume = getResume();
+      if (!resume?.original_path) return json(res, 404, { error: "No original résumé file is available" });
+      const file = await readFile(resume.original_path);
+      res.writeHead(200, {
+        "Content-Type": "application/pdf",
+        "Content-Length": file.length,
+        "Content-Disposition": `inline; filename="${resume.filename.replace(/["\\]/g, "_")}"`,
+        "Cache-Control": "no-store",
+      });
+      return res.end(file);
+    }
+    if (req.method === "POST" && url.pathname === "/api/resume/import") {
+      const incoming = await body(req);
+      const filename = String(incoming.filename || "resume.pdf").replace(/[^a-zA-Z0-9._ -]/g, "_");
+      const buffer = Buffer.from(String(incoming.base64 || ""), "base64");
+      if (!buffer.length || buffer.length > 10 * 1024 * 1024) return json(res, 400, { error: "Choose a PDF smaller than 10 MB" });
+      if (buffer.subarray(0, 4).toString() !== "%PDF") return json(res, 400, { error: "Only PDF résumés are supported in this version" });
+      const parser = new PDFParse({ data: buffer });
+      let parsed;
+      try { parsed = await parser.getText(); } finally { await parser.destroy(); }
+      const rawText = String(parsed.text || "").trim();
+      if (!rawText) return json(res, 422, { error: "No readable text was found in this PDF" });
+      const sections = sectionResumeText(rawText);
+      const resumeDirectory = resolve("data/resumes");
+      mkdirSync(resumeDirectory, { recursive: true });
+      const originalPath = resolve(resumeDirectory, filename);
+      await writeFile(originalPath, buffer);
+      const now = new Date().toISOString();
+      db.prepare(`INSERT INTO resumes (id, filename, original_path, raw_text, sections, uploaded_at, updated_at)
+        VALUES (1, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET filename=excluded.filename, original_path=excluded.original_path,
+        raw_text=excluded.raw_text, sections=excluded.sections, uploaded_at=excluded.uploaded_at, updated_at=excluded.updated_at`)
+        .run(filename, originalPath, rawText, JSON.stringify(sections), now, now);
+      const profile = extractProfile(rawText, getProfile());
+      db.prepare("UPDATE profile SET data = ?, updated_at = ? WHERE id = 1").run(JSON.stringify(profile), now);
+      rescoreAll(profile);
+      return json(res, 200, { resume: getResume(), profile });
+    }
+    if (req.method === "PUT" && url.pathname === "/api/resume") {
+      const existing = getResume();
+      if (!existing) return json(res, 404, { error: "Import a résumé first" });
+      const incoming = await body(req);
+      const sections = { ...existing.sections, ...(incoming.sections || {}) };
+      const rawText = joinedResumeText(sections);
+      const now = new Date().toISOString();
+      db.prepare("UPDATE resumes SET raw_text = ?, sections = ?, updated_at = ? WHERE id = 1")
+        .run(rawText, JSON.stringify(sections), now);
+      const profile = { ...getProfile(), resumeText: rawText };
+      db.prepare("UPDATE profile SET data = ?, updated_at = ? WHERE id = 1").run(JSON.stringify(profile), now);
+      rescoreAll(profile);
+      return json(res, 200, { resume: getResume(), profile });
     }
     if (req.method === "GET" && url.pathname === "/api/sources") {
       return json(res, 200, db.prepare("SELECT * FROM sources ORDER BY company").all());
