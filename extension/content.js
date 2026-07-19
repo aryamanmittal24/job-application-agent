@@ -52,10 +52,19 @@ function setNativeValue(field, value) {
   field.style.boxShadow = "0 0 0 2px rgba(45, 143, 82, .35)";
 }
 
+function extensionRequest(type) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ type }, (response) => {
+      if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+      if (!response?.ok) return reject(new Error(response?.error || "JobPilot local service unavailable"));
+      resolve(response);
+    });
+  });
+}
+
 async function fillApplication() {
-  const response = await fetch("http://127.0.0.1:4010/api/profile");
-  if (!response.ok) throw new Error("Profile unavailable");
-  const profile = await response.json();
+  const profileResponse = await extensionRequest("JOBPILOT_PROFILE");
+  const profile = profileResponse.profile;
   const fields = [...document.querySelectorAll("input:not([type='hidden']):not([type='submit']):not([type='button']), textarea, select")];
   let filled = 0; let skipped = 0;
   let resumeFile = null;
@@ -68,12 +77,10 @@ async function fillApplication() {
       if (!/resume|résumé|cv|curriculum vitae/.test(label) && field.id !== "resume") { skipped += 1; continue; }
       try {
         if (!resumeFile) {
-          const [metadata, fileResponse] = await Promise.all([
-            fetch("http://127.0.0.1:4010/api/resume").then((result) => result.json()),
-            fetch("http://127.0.0.1:4010/api/resume/file"),
-          ]);
-          if (!fileResponse.ok) throw new Error();
-          resumeFile = new File([await fileResponse.blob()], metadata.filename || "resume.pdf", { type: "application/pdf" });
+          const resumeResponse = await extensionRequest("JOBPILOT_RESUME");
+          const binary = atob(resumeResponse.resume.base64);
+          const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+          resumeFile = new File([bytes], resumeResponse.resume.filename, { type: "application/pdf" });
         }
         const transfer = new DataTransfer(); transfer.items.add(resumeFile); field.files = transfer.files;
         field.dispatchEvent(new Event("change", { bubbles: true })); filled += 1;

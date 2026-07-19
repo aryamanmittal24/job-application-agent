@@ -25,7 +25,7 @@ fillButton.addEventListener("click", async () => {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const response = await chrome.tabs.sendMessage(tab.id, { type: "JOBPILOT_FILL" });
-    result.textContent = `Filled ${response.filled} fields. ${response.skipped} fields need your review.`;
+    result.textContent = response?.error || `Filled ${response.filled} fields. ${response.skipped} fields need your review.`;
   } catch {
     result.textContent = "This page is not supported yet. Try a Greenhouse, Lever, Workday, Ashby, or Workable application.";
   } finally {

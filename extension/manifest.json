@@ -5,6 +5,7 @@
   "description": "Fill known application fields from your private local JobPilot profile.",
   "permissions": ["activeTab", "scripting"],
   "host_permissions": ["http://127.0.0.1:4010/*"],
+  "background": { "service_worker": "background.js" },
   "action": {
     "default_title": "JobPilot Autofill",
     "default_popup": "popup.html"
