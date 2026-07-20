@@ -7,12 +7,15 @@ import { dirname, resolve } from "node:path";
 import { PDFParse } from "pdf-parse";
 import { scoreJob, stripHtml } from "./lib/matcher.mjs";
 import { tailorResume } from "./lib/resume-tailor.mjs";
+import { buildCoverLetter } from "./lib/cover-letter.mjs";
 
 const PORT = Number(process.env.JOB_AGENT_API_PORT || 4010);
 const DB_PATH = resolve(process.env.JOB_AGENT_DB || "data/job-agent.sqlite");
 const TAILORED_RESUME_DIR = resolve(process.env.JOB_AGENT_TAILORED_DIR || "data/tailored-resumes");
+const COVER_LETTER_DIR = resolve(process.env.JOB_AGENT_COVER_LETTER_DIR || "data/cover-letters");
 mkdirSync(dirname(DB_PATH), { recursive: true });
 mkdirSync(TAILORED_RESUME_DIR, { recursive: true });
+mkdirSync(COVER_LETTER_DIR, { recursive: true });
 const db = new DatabaseSync(DB_PATH);
 db.exec("PRAGMA journal_mode=WAL");
 db.exec(`CREATE TABLE IF NOT EXISTS profile (
@@ -75,6 +78,12 @@ db.exec(`CREATE TABLE IF NOT EXISTS tailored_resumes (
   updated_at TEXT NOT NULL,
   FOREIGN KEY(job_id) REFERENCES jobs(id)
 )`);
+db.exec(`CREATE TABLE IF NOT EXISTS cover_letters (
+  job_id INTEGER PRIMARY KEY,
+  body TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(job_id) REFERENCES jobs(id)
+)`);
 
 const DEFAULT_PROFILE = {
   firstName: "", lastName: "", email: "", phone: "", location: "",
@@ -82,6 +91,7 @@ const DEFAULT_PROFILE = {
   country: "", postalCode: "", currentCompany: "", currentTitle: "", currentStartMonth: "", currentStartYear: "",
   school: "", degree: "", graduationYear: "", workAuthorization: "",
   requiresSponsorship: "",
+  achievements: "",
   preferredTitles: ["software engineer"], preferredLocations: ["remote"],
   excludedCompanies: [], skills: [], resumeText: "", answers: [],
 };
@@ -484,6 +494,30 @@ const server = http.createServer(async (req, res) => {
         SUM(CASE WHEN status = 'applied' THEN 1 ELSE 0 END) AS applied
         FROM jobs`).get();
       return json(res, 200, row);
+    }
+    const coverLetterMatch = url.pathname.match(/^\/api\/jobs\/(\d+)\/cover-letter$/);
+    if (coverLetterMatch) {
+      const jobId = Number(coverLetterMatch[1]);
+      const job = db.prepare("SELECT * FROM jobs WHERE id = ?").get(jobId);
+      if (!job) return json(res, 404, { error: "Job not found" });
+      const profile = getProfile();
+      const saved = db.prepare("SELECT body, updated_at FROM cover_letters WHERE job_id = ?").get(jobId);
+      const match = JSON.parse(job.match_data || "{}");
+      if (req.method === "GET") {
+        return json(res, 200, { body: saved?.body || buildCoverLetter(job, profile, match), updated_at: saved?.updated_at || null });
+      }
+      if (req.method === "PUT") {
+        const incoming = await body(req);
+        const letter = String(incoming.body || "").trim();
+        if (!letter) return json(res, 400, { error: "Your cover letter cannot be empty" });
+        const now = new Date().toISOString();
+        db.prepare(`INSERT INTO cover_letters (job_id, body, updated_at) VALUES (?, ?, ?)
+          ON CONFLICT(job_id) DO UPDATE SET body=excluded.body, updated_at=excluded.updated_at`).run(jobId, letter, now);
+        const filename = `${jobId}-${safeFilename(job.company)}-${safeFilename(job.title)}-cover-letter.txt`;
+        const filePath = resolve(COVER_LETTER_DIR, filename);
+        await writeFile(filePath, letter, "utf8");
+        return json(res, 200, { ok: true, updated_at: now, file_path: filePath });
+      }
     }
     const tailorMatch = url.pathname.match(/^\/api\/jobs\/(\d+)\/tailored-resume$/);
     if (tailorMatch) {

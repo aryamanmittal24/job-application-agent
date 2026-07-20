@@ -3,7 +3,7 @@
 import {
   ArrowUpRight, Bookmark, BriefcaseBusiness, Check, ChevronRight, CircleAlert,
   Database, ExternalLink, FilePenLine, FileText, GraduationCap, LayoutDashboard,
-  MapPin, Plus, RefreshCw, Search, Settings2, SlidersHorizontal, Sparkles, Upload, UserRound, WandSparkles, X,
+  MapPin, Mail, Clock3, CalendarDays, Plus, RefreshCw, Search, Settings2, SlidersHorizontal, Sparkles, Upload, UserRound, WandSparkles, X,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
@@ -21,7 +21,7 @@ type Profile = {
   linkedin: string; github: string; portfolio: string; yearsExperience: number;
   country: string; postalCode: string; currentCompany: string; currentTitle: string;
   school: string; degree: string; graduationYear: string; workAuthorization: string;
-  requiresSponsorship: string;
+  requiresSponsorship: string; achievements: string;
   preferredTitles: string[]; preferredLocations: string[]; excludedCompanies: string[];
   skills: string[]; resumeText: string; answers: { question: string; answer: string }[];
 };
@@ -34,7 +34,7 @@ const emptyProfile: Profile = {
   github: "", portfolio: "", yearsExperience: 0, preferredTitles: ["software engineer"],
   country: "", postalCode: "", currentCompany: "", currentTitle: "", school: "",
   degree: "", graduationYear: "", workAuthorization: "", requiresSponsorship: "",
-  preferredLocations: ["remote"], excludedCompanies: [], skills: [], resumeText: "", answers: [],
+  achievements: "", preferredLocations: ["remote"], excludedCompanies: [], skills: [], resumeText: "", answers: [],
 };
 
 function relativeDate(value?: string) {
@@ -65,6 +65,7 @@ export function JobDashboard() {
   const [profile, setProfile] = useState<Profile>(emptyProfile);
   const [selected, setSelected] = useState<Job | null>(null);
   const [tailoring, setTailoring] = useState<Job | null>(null);
+  const [coverLetter, setCoverLetter] = useState<Job | null>(null);
   const [query, setQuery] = useState("");
   const [scoreFilter, setScoreFilter] = useState(0);
   const [locationFilter, setLocationFilter] = useState("all");
@@ -223,16 +224,12 @@ export function JobDashboard() {
                   {[0, 55, 72].map((value) => <button key={value} className={scoreFilter === value ? "active" : ""} onClick={() => setScoreFilter(value)}>{value === 0 ? "All" : value === 55 ? "55+" : "72+"}</button>)}
                 </div>
               </div>
-              <div className="job-list">
+              <div className="job-list job-card-list">
                 {loading ? <LoadingRows /> : visibleJobs.length ? visibleJobs.map((job) => (
-                  <button className="job-row" key={job.id} onClick={() => setSelected(job)}>
-                    <span className="company-logo">{initials(job.company)}</span>
-                    <span className="job-main"><strong>{job.title}</strong><span>{job.company} · <MapPin size={13} /> {job.location}</span></span>
-                    <span className="skill-list">{(job.match.matchedSkills || []).slice(0, 2).map((skill) => <em key={skill}>{skill}</em>)}</span>
-                    <span className={`match-score score-${job.verdict}`}><b>{job.score}%</b><small>{job.verdict === "strong" ? "Strong match" : job.verdict === "possible" ? "Good match" : "Review"}</small></span>
-                    <span className="job-date">{relativeDate(job.published_at || job.updated_at)}</span>
-                    <ChevronRight size={17} className="row-arrow" />
-                  </button>
+                  <article className="job-card" key={job.id} onClick={() => setSelected(job)}>
+                    <div className="job-card-main"><span className="company-logo card-logo">{initials(job.company)}</span><div className="job-card-copy"><div className="job-card-tags"><span>{relativeDate(job.published_at || job.updated_at)}</span>{job.score >= 70 && <span>High-potential role</span>}</div><h3>{job.title}</h3><p>{job.company}</p><div className="job-card-meta"><span><MapPin size={15} />{job.location}</span><span><Clock3 size={15} />Full-time</span><span><CalendarDays size={15} />{job.match.experienceNeeded ? `${job.match.experienceNeeded}+ years exp` : "Experience flexible"}</span></div><div className="job-card-actions"><button className="mini-button" onClick={(event) => { event.stopPropagation(); void updateStatus(job, job.status === "saved" ? "new" : "saved"); }}>{job.status === "saved" ? "Saved" : "Save"}</button><button className="button primary" onClick={(event) => { event.stopPropagation(); void openApplication(job); }}>Open application <ArrowUpRight size={15} /></button></div></div></div>
+                    <aside className={`match-tile score-${job.verdict}`}><strong>{job.score}%</strong><span>{job.verdict === "strong" ? "Strong match" : job.verdict === "possible" ? "Good match" : "Review match"}</span><div>{(job.match.matchedSkills || []).slice(0, 3).map((skill) => <small key={skill}>✓ {skill}</small>)}</div></aside>
+                  </article>
                 )) : <EmptyJobs onSync={sync} onProfile={() => setView("profile")} />}
               </div>
             </section>
@@ -240,8 +237,9 @@ export function JobDashboard() {
         )}
       </main>
 
-      {selected && <JobPanel job={selected} onClose={() => setSelected(null)} onSave={() => updateStatus(selected, selected.status === "saved" ? "new" : "saved")} onOpen={() => openApplication(selected)} onApplied={() => updateStatus(selected, "applied")} onTailor={() => setTailoring(selected)} />}
+      {selected && <JobPanel job={selected} profile={profile} onClose={() => setSelected(null)} onSave={() => updateStatus(selected, selected.status === "saved" ? "new" : "saved")} onOpen={() => openApplication(selected)} onApplied={() => updateStatus(selected, "applied")} onTailor={() => setTailoring(selected)} onCoverLetter={() => setCoverLetter(selected)} />}
       {tailoring && <TailorResumeModal job={tailoring} onClose={() => setTailoring(null)} />}
+      {coverLetter && <CoverLetterModal job={coverLetter} onClose={() => setCoverLetter(null)} />}
     </div>
   );
 }
@@ -266,20 +264,27 @@ function FilterSelect({ label, value, onChange, options }: { label: string; valu
   return <label className="filter-select"><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value)}>{options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}</select></label>;
 }
 
-function JobPanel({ job, onClose, onSave, onOpen, onApplied, onTailor }: { job: Job; onClose: () => void; onSave: () => void; onOpen: () => void; onApplied: () => void; onTailor: () => void }) {
-  return <div className="drawer-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <aside className="job-drawer" aria-label={`${job.title} details`}>
-      <div className="drawer-head"><button onClick={onClose} aria-label="Close details"><X size={19} /></button><button className={job.status === "saved" ? "is-saved" : ""} onClick={onSave}><Bookmark size={17} />{job.status === "saved" ? "Saved" : "Save"}</button></div>
-      <div className="drawer-company"><span className="company-logo large">{initials(job.company)}</span><span>{job.company}</span></div>
-      <h2>{job.title}</h2>
-      <p className="drawer-location"><MapPin size={15} />{job.location}</p>
-      <div className={`drawer-score score-${job.verdict}`}><strong>{job.score}%</strong><div><b>{job.verdict === "strong" ? "Strong résumé match" : "Needs a closer look"}</b><span>Evidence-based local score</span></div></div>
-      <section className="drawer-section"><h3>Why it matches</h3><ul>{(job.match.reasons || []).map((reason) => <li key={reason}><Check size={15} />{reason}</li>)}</ul></section>
-      {(job.match.matchedSkills || []).length > 0 && <section className="drawer-section"><h3>Skills found</h3><div className="drawer-skills">{job.match.matchedSkills!.map((skill) => <span key={skill}>{skill}</span>)}</div></section>}
-      <section className="drawer-section"><h3>About the role</h3><p className="description">{job.description || "Open the official application to read the full description."}</p></section>
-      <div className="drawer-actions">{job.score >= 55 && job.verdict !== "skip" ? <button className="button secondary" onClick={onTailor}><WandSparkles size={16} />Tailor résumé</button> : <span className="tailor-disabled">Tailoring is available for 55%+ engineering matches.</span>}<button className="button secondary" onClick={onApplied}><Check size={16} />Mark applied</button><button className="button primary" onClick={onOpen}>Open application <ArrowUpRight size={16} /></button></div>
-    </aside>
+function JobPanel({ job, profile, onClose, onSave, onOpen, onApplied, onTailor, onCoverLetter }: { job: Job; profile: Profile; onClose: () => void; onSave: () => void; onOpen: () => void; onApplied: () => void; onTailor: () => void; onCoverLetter: () => void }) {
+  const skillScore = Math.min(100, Math.round(((job.match.matchedSkills || []).length / Math.max(4, Math.min(profile.skills.length || 4, 8))) * 100));
+  const experienceScore = job.match.experienceNeeded ? (profile.yearsExperience >= job.match.experienceNeeded ? 100 : Math.max(15, Math.round((profile.yearsExperience / job.match.experienceNeeded) * 100))) : 75;
+  const roleScore = profile.preferredTitles.some((title) => job.title.toLowerCase().includes(title.toLowerCase())) ? 100 : 55;
+  return <div className="detail-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <main className="job-detail" aria-label={`${job.title} details`}>
+      <header className="detail-top"><button onClick={onClose} aria-label="Close details"><X size={21} /></button><div><span>{relativeDate(job.published_at || job.updated_at)}</span><span>{job.status === "saved" ? "Saved role" : "Ready to review"}</span></div><div className="detail-top-actions"><button onClick={onSave}><Bookmark size={16} />{job.status === "saved" ? "Saved" : "Save"}</button><button className="button primary" onClick={onOpen}>Open application <ArrowUpRight size={16} /></button></div></header>
+      <section className="detail-hero"><div className="detail-company"><span className="company-logo large">{initials(job.company)}</span><span>{job.company}</span></div><h2>{job.title}</h2><div className="detail-layout"><div><div className="detail-meta"><span><MapPin size={17} />{job.location}</span><span><Clock3 size={17} />Full-time</span><span><CalendarDays size={17} />{job.match.experienceNeeded ? `${job.match.experienceNeeded}+ years experience` : "Experience flexible"}</span></div><p className="detail-description">{job.description || "Open the official application to read the full description."}</p><section className="detail-section"><h3>Relevant skills</h3><div className="drawer-skills">{(job.match.matchedSkills || []).length ? job.match.matchedSkills!.map((skill) => <span key={skill}>{skill}</span>) : <span className="muted">No direct skill overlap detected yet.</span>}</div></section></div><aside className="breakdown-card"><div className="breakdown-score"><strong>{job.score}%</strong><span>{job.verdict === "strong" ? "Strong match" : job.verdict === "possible" ? "Good match" : "Review match"}</span></div><div className="breakdown-lines"><span>Experience fit <b>{experienceScore}%</b></span><i><em style={{ width: `${experienceScore}%` }} /></i><span>Skill alignment <b>{skillScore}%</b></span><i><em style={{ width: `${skillScore}%` }} /></i><span>Role focus <b>{roleScore}%</b></span><i><em style={{ width: `${roleScore}%` }} /></i></div></aside></div></section>
+      <section className="detail-reasons"><h3>Why this role is showing up</h3><ul>{(job.match.reasons || []).map((reason) => <li key={reason}><Check size={16} />{reason}</li>)}</ul></section>
+      <section className="application-tools"><button onClick={onCoverLetter}><Mail size={20} /><span><b>Build cover letter</b><small>Use this role, skills, and your verified achievements</small></span><ChevronRight size={18} /></button><button onClick={onTailor}><WandSparkles size={20} /><span><b>Tailor résumé</b><small>Create a truthful job-specific résumé draft</small></span><ChevronRight size={18} /></button><button onClick={onApplied}><Check size={20} /><span><b>Mark as applied</b><small>Keep your application pipeline up to date</small></span><ChevronRight size={18} /></button></section>
+    </main>
   </div>;
+}
+
+type CoverLetter = { body: string; updated_at?: string | null };
+
+function CoverLetterModal({ job, onClose }: { job: Job; onClose: () => void }) {
+  const [body, setBody] = useState(""); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [message, setMessage] = useState("");
+  useEffect(() => { api<CoverLetter>(`/jobs/${job.id}/cover-letter`).then((letter) => setBody(letter.body)).catch((error) => setMessage(error instanceof Error ? error.message : "Could not prepare a cover letter")).finally(() => setLoading(false)); }, [job.id]);
+  async function save() { setSaving(true); try { const result = await api<{ file_path: string }>(`/jobs/${job.id}/cover-letter`, { method: "PUT", body: JSON.stringify({ body }) }); setMessage(`Saved to ${result.file_path}`); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not save this cover letter"); } finally { setSaving(false); } }
+  return <div className="tailor-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="tailor-modal cover-letter-modal" role="dialog" aria-modal="true" aria-label="Build cover letter"><header><div><p className="eyebrow">Role-specific application</p><h2>Build cover letter</h2><p>{job.company} · {job.title}</p></div><button onClick={onClose} aria-label="Close"><X size={19} /></button></header>{message && <div className="notice"><Check size={15} />{message}</div>}{loading ? <div className="tailor-loading">Building a truthful, job-specific draft…</div> : <><p className="cover-letter-help">This draft uses the role, skills detected in your résumé, and only the achievements you entered in your profile. Edit it freely before saving.</p><textarea className="cover-letter-editor" value={body} rows={18} onChange={(event) => setBody(event.target.value)} /><footer><span>Saved cover letters stay on this Mac.</span><div><button className="button secondary" onClick={onClose}>Done</button><button className="button primary" onClick={save} disabled={saving || !body}>{saving ? "Saving…" : "Save cover letter"}</button></div></footer></>}</section></div>;
 }
 
 type TailoredResume = { matched: string[]; suggested: string[]; keywords: string[]; draft: string; updated_at?: string | null; file_path?: string };
@@ -402,6 +407,7 @@ function ProfileView({ profile, onSaved }: { profile: Profile; onSaved: (profile
         <Field label="Degree" value={draft.degree} onChange={(value) => setDraft({ ...draft, degree: value })} />
         <Field label="Graduation year" value={draft.graduationYear} onChange={(value) => setDraft({ ...draft, graduationYear: value })} />
       </div></section>
+      <section className="form-card"><div className="form-title"><Sparkles size={18} /><div><h2>Verified achievements</h2><p>One achievement per line. These are the only accomplishments JobPilot may use in cover-letter drafts.</p></div></div><label className="field wide"><span>Achievements with evidence or outcomes</span><textarea rows={7} value={draft.achievements} onChange={(event) => setDraft({ ...draft, achievements: event.target.value })} placeholder="Reduced API latency by 35% by improving caching and query performance.&#10;Built an internal workflow used by 4 teams." /></label></section>
       <section className="form-card"><div className="form-title"><Settings2 size={18} /><div><h2>Job preferences</h2><p>Comma-separate multiple values.</p></div></div><div className="field-grid">
         <Field label="Target titles" value={draft.preferredTitles.join(", ")} onChange={(value) => setDraft({ ...draft, preferredTitles: list(value) })} />
         <Field label="Preferred locations" value={draft.preferredLocations.join(", ")} onChange={(value) => setDraft({ ...draft, preferredLocations: list(value) })} />
