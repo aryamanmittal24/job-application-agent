@@ -1,5 +1,30 @@
+import { appendFile, readFile } from "node:fs/promises";
+import { mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+
 const OLLAMA_URL = process.env.JOB_AGENT_OLLAMA_URL || "http://127.0.0.1:11434";
 export const LOCAL_MODEL = process.env.JOB_AGENT_OLLAMA_MODEL || "qwen3:1.7b";
+export const LOCAL_LOG_PATH = resolve(process.env.JOB_AGENT_LLM_LOG || "data/llm-review.log");
+mkdirSync(dirname(LOCAL_LOG_PATH), { recursive: true });
+const REVIEW_SCHEMA = {
+  type: "object",
+  properties: {
+    jdFit: { type: "integer", minimum: 0, maximum: 100 },
+    experienceFit: { type: "integer", minimum: 0, maximum: 100 },
+    qualificationFit: { type: "integer", minimum: 0, maximum: 100 },
+    locationFit: { type: "integer", minimum: 0, maximum: 100 },
+    confidence: { type: "string", enum: ["low", "medium", "high"] },
+    missingMustHaves: { type: "array", items: { type: "string" }, maxItems: 8 },
+    evidence: { type: "array", items: { type: "string" }, maxItems: 8 },
+    recommendation: { type: "string", enum: ["apply", "review", "skip"] },
+  },
+  required: ["jdFit", "experienceFit", "qualificationFit", "locationFit", "confidence", "missingMustHaves", "evidence", "recommendation"],
+  additionalProperties: false,
+};
+
+async function log(event, details = {}) {
+  await appendFile(LOCAL_LOG_PATH, `${JSON.stringify({ at: new Date().toISOString(), event, model: LOCAL_MODEL, ...details })}\n`);
+}
 
 async function ollama(path, options = {}) {
   const response = await fetch(`${OLLAMA_URL}${path}`, {
@@ -15,9 +40,13 @@ export async function localModelStatus() {
     const data = await ollama("/api/tags");
     const models = Array.isArray(data.models) ? data.models : [];
     const installed = models.some((model) => model.name === LOCAL_MODEL || model.name?.startsWith(`${LOCAL_MODEL}:`));
-    return { available: true, installed, model: LOCAL_MODEL, url: OLLAMA_URL };
+    const status = { available: true, installed, model: LOCAL_MODEL, url: OLLAMA_URL };
+    await log("status", status);
+    return status;
   } catch (error) {
-    return { available: false, installed: false, model: LOCAL_MODEL, url: OLLAMA_URL, error: error.message };
+    const status = { available: false, installed: false, model: LOCAL_MODEL, url: OLLAMA_URL, error: error.message };
+    await log("status_error", status);
+    return status;
   }
 }
 
@@ -31,25 +60,29 @@ function extractJson(value) {
 }
 
 export async function reviewJobWithLocalModel({ job, profile, deterministicMatch }) {
+  const started = Date.now();
   const prompt = [
     "You are a conservative job-match reviewer. Never invent experience, skills, degree, work authorization, or location eligibility.",
     "Use the deterministic score as an input, not as a fact. Return JSON only with this shape:",
     '{"jdFit":0,"experienceFit":0,"qualificationFit":0,"locationFit":0,"confidence":"low|medium|high","missingMustHaves":[],"evidence":[],"recommendation":"apply|review|skip"}',
-    "Score each dimension from 0 to 100. Treat an explicit required qualification or seniority mismatch as more important than keyword overlap.",
+    "Score each dimension from 0 to 100. Use realistic scores, not 0/1. Treat an explicit required qualification or seniority mismatch as more important than keyword overlap.",
     `Deterministic match: ${JSON.stringify(deterministicMatch)}`,
-    `Profile: ${JSON.stringify({ yearsExperience: profile.yearsExperience, preferredTitles: profile.preferredTitles, preferredLocations: profile.preferredLocations, education: profile.education, skills: profile.skills, resumeText: profile.resumeText })}`,
-    `Job: ${JSON.stringify({ title: job.title, company: job.company, location: job.location, description: job.description })}`,
+    "/no_think",
+    `Profile: ${JSON.stringify({ yearsExperience: profile.yearsExperience, preferredTitles: profile.preferredTitles, preferredLocations: profile.preferredLocations, school: profile.school, degree: profile.degree, skills: profile.skills, achievements: profile.achievements })}`,
+    `Job: ${JSON.stringify({ title: job.title, company: job.company, location: job.location, description: String(job.description || "").slice(0, 9000) })}`,
   ].join("\n\n");
-  const data = await ollama("/api/generate", {
-    method: "POST",
-    body: JSON.stringify({ model: LOCAL_MODEL, prompt, stream: false, format: "json", options: { temperature: 0, num_ctx: 8192 } }),
-  });
-  const parsed = extractJson(data.response);
+  try {
+    await log("request", { jobId: job.id, company: job.company, title: job.title });
+    const data = await ollama("/api/generate", {
+      method: "POST",
+      body: JSON.stringify({ model: LOCAL_MODEL, prompt, stream: false, think: false, format: REVIEW_SCHEMA, options: { temperature: 0, num_ctx: 8192 } }),
+    });
+    const parsed = extractJson(data.response);
   const score = (value, fallback = 50) => {
     const number = Number(value);
     return Number.isFinite(number) ? Math.max(0, Math.min(100, Math.round(number))) : fallback;
   };
-  return {
+    const review = {
     jdFit: score(parsed.jdFit, score(deterministicMatch.score)),
     experienceFit: score(parsed.experienceFit),
     qualificationFit: score(parsed.qualificationFit),
@@ -58,5 +91,20 @@ export async function reviewJobWithLocalModel({ job, profile, deterministicMatch
     missingMustHaves: Array.isArray(parsed.missingMustHaves) ? parsed.missingMustHaves.map(String).slice(0, 8) : [],
     evidence: Array.isArray(parsed.evidence) ? parsed.evidence.map(String).slice(0, 8) : [],
     recommendation: ["apply", "review", "skip"].includes(parsed.recommendation) ? parsed.recommendation : "review",
-  };
+    };
+    await log("response", { jobId: job.id, durationMs: Date.now() - started, rawResponse: String(data.response || "").slice(0, 2000), review });
+    return review;
+  } catch (error) {
+    await log("error", { jobId: job.id, durationMs: Date.now() - started, error: error.message });
+    throw error;
+  }
+}
+
+export async function readLocalModelLogs(limit = 80) {
+  try {
+    const text = await readFile(LOCAL_LOG_PATH, "utf8");
+    return text.trim().split("\n").slice(-Math.max(1, Math.min(300, limit))).map((line) => JSON.parse(line));
+  } catch {
+    return [];
+  }
 }

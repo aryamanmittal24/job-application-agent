@@ -8,7 +8,7 @@ import { PDFParse } from "pdf-parse";
 import { scoreJob, stripHtml } from "./lib/matcher.mjs";
 import { tailorResume } from "./lib/resume-tailor.mjs";
 import { buildCoverLetter } from "./lib/cover-letter.mjs";
-import { localModelStatus, reviewJobWithLocalModel } from "./lib/local-llm.mjs";
+import { localModelStatus, readLocalModelLogs, reviewJobWithLocalModel, LOCAL_LOG_PATH } from "./lib/local-llm.mjs";
 
 const PORT = Number(process.env.JOB_AGENT_API_PORT || 4010);
 const DB_PATH = resolve(process.env.JOB_AGENT_DB || "data/job-agent.sqlite");
@@ -382,6 +382,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/api/llm/status") {
       return json(res, 200, await localModelStatus());
+    }
+    if (req.method === "GET" && url.pathname === "/api/llm/logs") {
+      return json(res, 200, { path: LOCAL_LOG_PATH, entries: await readLocalModelLogs(Number(url.searchParams.get("limit") || 80)) });
     }
     if (req.method === "GET" && url.pathname === "/api/profile") {
       return json(res, 200, getProfile());
