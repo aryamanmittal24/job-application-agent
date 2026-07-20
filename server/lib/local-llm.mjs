@@ -44,5 +44,19 @@ export async function reviewJobWithLocalModel({ job, profile, deterministicMatch
     method: "POST",
     body: JSON.stringify({ model: LOCAL_MODEL, prompt, stream: false, format: "json", options: { temperature: 0, num_ctx: 8192 } }),
   });
-  return extractJson(data.response);
+  const parsed = extractJson(data.response);
+  const score = (value, fallback = 50) => {
+    const number = Number(value);
+    return Number.isFinite(number) ? Math.max(0, Math.min(100, Math.round(number))) : fallback;
+  };
+  return {
+    jdFit: score(parsed.jdFit, score(deterministicMatch.score)),
+    experienceFit: score(parsed.experienceFit),
+    qualificationFit: score(parsed.qualificationFit),
+    locationFit: score(parsed.locationFit),
+    confidence: ["low", "medium", "high"].includes(parsed.confidence) ? parsed.confidence : "low",
+    missingMustHaves: Array.isArray(parsed.missingMustHaves) ? parsed.missingMustHaves.map(String).slice(0, 8) : [],
+    evidence: Array.isArray(parsed.evidence) ? parsed.evidence.map(String).slice(0, 8) : [],
+    recommendation: ["apply", "review", "skip"].includes(parsed.recommendation) ? parsed.recommendation : "review",
+  };
 }
