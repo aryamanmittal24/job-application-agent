@@ -72,6 +72,7 @@ export function JobDashboard() {
   const [levelFilter, setLevelFilter] = useState("all");
   const [employmentFilter, setEmploymentFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("all");
+  const [page, setPage] = useState(1);
   const [filterTimestamp] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -114,6 +115,9 @@ export function JobDashboard() {
       return (!needle || text.includes(needle)) && locationOK && levelOK && employmentOK && dateOK;
     });
   }, [jobs, query, locationFilter, levelFilter, employmentFilter, dateFilter, filterTimestamp]);
+  const pageCount = Math.max(1, Math.ceil(visibleJobs.length / 25));
+  const pagedJobs = visibleJobs.slice((page - 1) * 25, page * 25);
+  useEffect(() => { setPage(1); }, [query, scoreFilter, locationFilter, levelFilter, employmentFilter, dateFilter, view]);
 
   async function sync() {
     setSyncing(true); setNotice("");
@@ -219,19 +223,20 @@ export function JobDashboard() {
 
             <section className="list-section">
               <div className="list-heading">
-                <div><h2>Recommended roles</h2><span>{visibleJobs.length} shown</span></div>
+                <div><h2>Recommended roles</h2><span>{visibleJobs.length ? `${(page - 1) * 25 + 1}–${Math.min(page * 25, visibleJobs.length)} of ${visibleJobs.length}` : "0 shown"}</span></div>
                 <div className="score-filter" aria-label="Match score filter">
                   {[0, 55, 72].map((value) => <button key={value} className={scoreFilter === value ? "active" : ""} onClick={() => setScoreFilter(value)}>{value === 0 ? "All" : value === 55 ? "55+" : "72+"}</button>)}
                 </div>
               </div>
               <div className="job-list job-card-list">
-                {loading ? <LoadingRows /> : visibleJobs.length ? visibleJobs.map((job) => (
+                {loading ? <LoadingRows /> : pagedJobs.length ? pagedJobs.map((job) => (
                   <article className="job-card" key={job.id} onClick={() => setSelected(job)}>
                     <div className="job-card-main"><span className="company-logo card-logo">{initials(job.company)}</span><div className="job-card-copy"><div className="job-card-tags"><span>{relativeDate(job.published_at || job.updated_at)}</span>{job.score >= 70 && <span>High-potential role</span>}</div><h3>{job.title}</h3><p>{job.company}</p><div className="job-card-meta"><span><MapPin size={15} />{job.location}</span><span><Clock3 size={15} />Full-time</span><span><CalendarDays size={15} />{job.match.experienceNeeded ? `${job.match.experienceNeeded}+ years exp` : "Experience flexible"}</span></div><div className="job-card-actions"><button className="mini-button" onClick={(event) => { event.stopPropagation(); void updateStatus(job, job.status === "saved" ? "new" : "saved"); }}>{job.status === "saved" ? "Saved" : "Save"}</button><button className="button primary" onClick={(event) => { event.stopPropagation(); void openApplication(job); }}>Open application <ArrowUpRight size={15} /></button></div></div></div>
                     <aside className={`match-tile score-${job.verdict}`}><strong>{job.score}%</strong><span>{job.verdict === "strong" ? "Strong match" : job.verdict === "possible" ? "Good match" : "Review match"}</span><div>{(job.match.matchedSkills || []).slice(0, 3).map((skill) => <small key={skill}>✓ {skill}</small>)}</div></aside>
                   </article>
                 )) : <EmptyJobs onSync={sync} onProfile={() => setView("profile")} />}
               </div>
+              {visibleJobs.length > 25 && <div className="pagination"><button className="button secondary" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1}>Previous</button><span>Page {page} of {pageCount}</span><button className="button secondary" onClick={() => setPage((current) => Math.min(pageCount, current + 1))} disabled={page === pageCount}>Next</button></div>}
             </section>
           </>
         )}
@@ -266,6 +271,7 @@ function FilterSelect({ label, value, onChange, options }: { label: string; valu
 
 function JobPanel({ job, profile, onClose, onSave, onOpen, onApplied, onTailor, onCoverLetter }: { job: Job; profile: Profile; onClose: () => void; onSave: () => void; onOpen: () => void; onApplied: () => void; onTailor: () => void; onCoverLetter: () => void }) {
   const [aiReview, setAiReview] = useState<LocalReview | null>(null);
+  const [qwenDuration, setQwenDuration] = useState<number | null>(null);
   const [aiReviewLoading, setAiReviewLoading] = useState(false);
   const [aiReviewMessage, setAiReviewMessage] = useState("");
   const skillScore = Math.min(100, Math.round(((job.match.matchedSkills || []).length / Math.max(4, Math.min(profile.skills.length || 4, 8))) * 100));
@@ -273,7 +279,7 @@ function JobPanel({ job, profile, onClose, onSave, onOpen, onApplied, onTailor, 
   const roleScore = profile.preferredTitles.some((title) => job.title.toLowerCase().includes(title.toLowerCase())) ? 100 : 55;
   async function runLocalReview() {
     setAiReviewLoading(true); setAiReviewMessage("");
-    try { const result = await api<{ model: string; review: LocalReview }>(`/jobs/${job.id}/local-review`, { method: "POST" }); setAiReview(result.review); }
+    try { const result = await api<{ model: string; review: LocalReview; durationMs: number }>(`/jobs/${job.id}/local-review`, { method: "POST" }); setAiReview(result.review); setQwenDuration(result.durationMs); }
     catch (error) { setAiReviewMessage(error instanceof Error ? error.message : "Could not run Qwen3"); }
     finally { setAiReviewLoading(false); }
   }

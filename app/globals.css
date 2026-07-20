@@ -169,6 +169,7 @@ button.keyword.selected { border-color: #9acbaa; background: #e5f5e9; color: #21
 
 /* Discovery cards and job detail workspace */
 .job-card-list { display: grid; gap: 14px; overflow: visible; border: 0; background: transparent; }
+.pagination { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 20px 0 4px; color: #69766e; font-size: 12px; }
 .job-card { display: grid; grid-template-columns: minmax(0, 1fr) 190px; gap: 20px; min-height: 202px; padding: 22px 22px 22px 25px; border: 1px solid var(--line); border-radius: 16px; background: #fff; cursor: pointer; box-shadow: 0 8px 22px rgba(23,32,25,.035); transition: transform .16s ease, box-shadow .16s ease; }
 .job-card:hover { transform: translateY(-2px); box-shadow: 0 14px 30px rgba(23,32,25,.09); }
 .job-card-main { display: flex; gap: 17px; min-width: 0; }

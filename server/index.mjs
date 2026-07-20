@@ -592,8 +592,9 @@ const server = http.createServer(async (req, res) => {
       if (!job) return json(res, 404, { error: "Job not found" });
       const profile = getProfile();
       const deterministicMatch = JSON.parse(job.match_data || "{}");
+      const started = Date.now();
       const review = await reviewJobWithLocalModel({ job, profile, deterministicMatch });
-      return json(res, 200, { model: process.env.JOB_AGENT_OLLAMA_MODEL || "qwen3:1.7b", review });
+      return json(res, 200, { model: process.env.JOB_AGENT_OLLAMA_MODEL || "qwen3:1.7b", durationMs: Date.now() - started, review });
     }
     const statusMatch = url.pathname.match(/^\/api\/jobs\/(\d+)\/status$/);
     if (req.method === "PATCH" && statusMatch) {
