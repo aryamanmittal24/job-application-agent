@@ -10,7 +10,9 @@ import { tailorResume } from "./lib/resume-tailor.mjs";
 
 const PORT = Number(process.env.JOB_AGENT_API_PORT || 4010);
 const DB_PATH = resolve(process.env.JOB_AGENT_DB || "data/job-agent.sqlite");
+const TAILORED_RESUME_DIR = resolve(process.env.JOB_AGENT_TAILORED_DIR || "data/tailored-resumes");
 mkdirSync(dirname(DB_PATH), { recursive: true });
+mkdirSync(TAILORED_RESUME_DIR, { recursive: true });
 const db = new DatabaseSync(DB_PATH);
 db.exec("PRAGMA journal_mode=WAL");
 db.exec(`CREATE TABLE IF NOT EXISTS profile (
@@ -250,6 +252,7 @@ async function body(req) {
 function publicJob(row) {
   return {
     ...row,
+    description: stripHtml(row.description || ""),
     match: JSON.parse(row.match_data || "{}"),
     match_data: undefined,
   };
@@ -262,6 +265,10 @@ function rescoreAll(profile) {
     const match = scoreJob(job, profile);
     update.run(match.score, match.verdict, JSON.stringify(match), job.id);
   }
+}
+
+function safeFilename(value) {
+  return String(value || "resume").trim().replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || "resume";
 }
 
 function repairStoredResume() {
@@ -499,7 +506,10 @@ const server = http.createServer(async (req, res) => {
         db.prepare(`INSERT INTO tailored_resumes (job_id, keywords, draft_text, updated_at) VALUES (?, ?, ?, ?)
           ON CONFLICT(job_id) DO UPDATE SET keywords=excluded.keywords, draft_text=excluded.draft_text, updated_at=excluded.updated_at`)
           .run(jobId, JSON.stringify(keywords), draftText, now);
-        return json(res, 200, { ok: true, updated_at: now });
+        const filename = `${jobId}-${safeFilename(job.company)}-${safeFilename(job.title)}-tailored-resume.txt`;
+        const filePath = resolve(TAILORED_RESUME_DIR, filename);
+        await writeFile(filePath, draftText, "utf8");
+        return json(res, 200, { ok: true, updated_at: now, file_path: filePath });
       }
     }
     const statusMatch = url.pathname.match(/^\/api\/jobs\/(\d+)\/status$/);
