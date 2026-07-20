@@ -27,7 +27,7 @@ type Profile = {
 };
 
 type Stats = { total: number; strong: number; saved: number; applied: number };
-type View = "jobs" | "saved" | "applications" | "resume" | "profile" | "sources" | "extension";
+type View = "jobs" | "saved" | "applications" | "resume" | "profile" | "sources" | "extension" | "ai-review";
 
 const emptyProfile: Profile = {
   firstName: "", lastName: "", email: "", phone: "", location: "", linkedin: "",
@@ -162,6 +162,7 @@ export function JobDashboard() {
           <NavButton active={view === "resume"} icon={<FilePenLine size={17} />} label="My résumé" onClick={() => setView("resume")} />
           <NavButton active={view === "profile"} icon={<UserRound size={17} />} label="My profile" onClick={() => setView("profile")} />
           <NavButton active={view === "sources"} icon={<Database size={17} />} label="Job sources" onClick={() => setView("sources")} />
+          <NavButton active={view === "ai-review"} icon={<Bot size={17} />} label="AI review" onClick={() => setView("ai-review")} />
           <NavButton active={view === "extension"} icon={<WandSparkles size={17} />} label="Autofill extension" onClick={() => setView("extension")} />
         </nav>
         <div className="sidebar-foot">
@@ -180,6 +181,8 @@ export function JobDashboard() {
           <ProfileView profile={profile} onSaved={(saved) => { setProfile(saved); setNotice("Profile saved. All jobs were rescored."); }} />
         ) : view === "sources" ? (
           <SourcesView onSync={sync} syncing={syncing} />
+        ) : view === "ai-review" ? (
+          <LocalReviewView />
         ) : view === "extension" ? (
           <ExtensionView />
         ) : (
@@ -477,4 +480,26 @@ function ExtensionView() {
     <div className="extension-layout"><section className="form-card install-card"><div className="extension-graphic"><span><WandSparkles size={28} /></span><i>1</i><i>2</i><i>3</i></div><h2>Load the extension locally</h2><ol><li>Open <code>chrome://extensions</code> in Chrome.</li><li>Enable <strong>Developer mode</strong>.</li><li>Choose <strong>Load unpacked</strong> and select this repository’s <code>extension</code> folder.</li><li>Pin JobPilot Autofill. Open a Greenhouse application and click <strong>Fill application</strong>.</li></ol></section>
       <section className="safety-card"><CircleAlert size={18} /><div><h3>Designed to stop safely</h3><p>Unknown, demographic, legal, sponsorship, file-upload, and CAPTCHA fields are left for you. The extension never clicks Submit.</p></div></section></div>
   </div>;
+}
+
+function LocalReviewView() {
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [review, setReview] = useState<LocalReview | null>(null);
+  const [durationMs, setDurationMs] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [message, setMessage] = useState("");
+  useEffect(() => { api<Job[]>("/jobs?status=all&minScore=55&limit=25").then((next) => { setJobs(next); setSelectedId(next[0]?.id || null); }).catch((error) => setMessage(error instanceof Error ? error.message : "Could not load review queue")).finally(() => setLoading(false)); }, []);
+  const selected = jobs.find((job) => job.id === selectedId) || null;
+  async function runReview() {
+    if (!selected) return;
+    setRunning(true); setMessage("");
+    try { const result = await api<{ review: LocalReview; durationMs: number }>(`/jobs/${selected.id}/local-review`, { method: "POST" }); setReview(result.review); setDurationMs(result.durationMs); }
+    catch (error) { setMessage(error instanceof Error ? error.message : "Could not run Qwen3"); }
+    finally { setRunning(false); }
+  }
+  useEffect(() => { setReview(null); setDurationMs(null); setMessage(""); }, [selectedId]);
+  const dimensions = review ? [["JD fit", review.jdFit], ["Experience", review.experienceFit], ["Qualifications", review.qualificationFit], ["Location", review.locationFit]] as [string, number][] : [];
+  return <div className="settings-page ai-review-page"><header className="settings-header"><div><p className="eyebrow">Local model workspace</p><h1>AI review queue</h1><p>Compare the explainable matcher with Qwen3 only when a role deserves a closer look. Nothing is sent to a cloud model.</p></div><span className="privacy-chip"><Bot size={14} /> Qwen3 · 1.7B</span></header>{message && <div className="notice"><CircleAlert size={15} />{message}</div>}<div className="review-workspace"><section className="review-queue"><div className="review-queue-heading"><div><h2>Review queue</h2><p>Top 25 roles scoring 55 or higher</p></div><span>{jobs.length} roles</span></div>{loading ? <LoadingRows /> : jobs.length ? jobs.map((job) => <button className={`review-queue-item ${job.id === selectedId ? "active" : ""}`} key={job.id} onClick={() => setSelectedId(job.id)}><span className="company-logo">{initials(job.company)}</span><span><strong>{job.title}</strong><small>{job.company} · {job.location}</small></span><b>{job.score}%</b></button>) : <p className="muted">No review candidates yet.</p>}</section><section className="review-focus">{selected ? <><div className="review-focus-heading"><div><p className="eyebrow">Selected role</p><h2>{selected.title}</h2><p>{selected.company} · {selected.location}</p></div><button className="button primary" onClick={runReview} disabled={running}><Bot size={16} />{running ? "Running locally…" : review ? "Run again" : "Run Qwen review"}</button></div><div className="review-panes"><article className="review-pane deterministic-review-pane"><div className="pane-label">Deterministic matcher</div><strong className="review-score">{selected.score}%</strong><span className="review-verdict">{selected.verdict === "strong" ? "Strong match" : selected.verdict === "possible" ? "Good match" : "Review match"}</span><div className="breakdown-lines"><span>Matched skills <b>{selected.match.matchedSkills?.length || 0}</b></span><span>Experience requirement <b>{selected.match.experienceNeeded ? `${selected.match.experienceNeeded}+ yrs` : "Flexible"}</b></span></div><ul className="review-reasons">{(selected.match.reasons || []).slice(0, 4).map((reason) => <li key={reason}><Check size={14} />{reason}</li>)}</ul><small>Fast and explainable. Runs during sync/rescore.</small></article><article className="review-pane qwen-review-pane"><div className="pane-label"><Bot size={14} /> Qwen3 local review</div>{!review ? <div className="review-empty"><strong>Not run for this role</strong><p>Use the button above to ask the local model for a second opinion across JD, experience, qualifications, and location.</p></div> : <><div className="review-score-row"><strong>{Math.round(dimensions.reduce((sum, [, value]) => sum + value, 0) / dimensions.length)}%</strong><span>{review.recommendation === "apply" ? "Worth applying" : review.recommendation === "skip" ? "Skip" : "Review"}</span></div><div className="breakdown-lines">{dimensions.map(([label, value]) => <Fragment key={label}><span>{label}<b>{value}%</b></span><i><em style={{ width: `${value}%` }} /></i></Fragment>)}</div><div className="review-columns"><div><h3>Missing must-haves</h3>{review.missingMustHaves.length ? <ul>{review.missingMustHaves.map((item) => <li key={item}>{item}</li>)}</ul> : <p>None detected.</p>}</div><div><h3>Evidence</h3>{review.evidence.length ? <ul>{review.evidence.slice(0, 5).map((item) => <li key={item}>{item}</li>)}</ul> : <p>None returned.</p>}</div></div><small>{review.confidence} confidence · completed in {durationMs ? `${Math.round(durationMs / 100) / 10}s` : "—"}</small></>}</article></div></> : <div className="empty-state"><Bot size={28} /><h3>Select a role</h3><p>Choose a job from the review queue to compare both matchers.</p></div>}</section></div></div>;
 }
