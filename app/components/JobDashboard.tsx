@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  ArrowUpRight, Bookmark, BriefcaseBusiness, Check, ChevronRight, CircleAlert,
+  ArrowUpRight, Bookmark, BriefcaseBusiness, Check, ChevronRight, CircleAlert, Bot,
   Database, ExternalLink, FilePenLine, FileText, GraduationCap, LayoutDashboard,
   MapPin, Mail, Clock3, CalendarDays, Plus, RefreshCw, Search, Settings2, SlidersHorizontal, Sparkles, Upload, UserRound, WandSparkles, X,
 } from "lucide-react";
@@ -66,6 +66,7 @@ export function JobDashboard() {
   const [selected, setSelected] = useState<Job | null>(null);
   const [tailoring, setTailoring] = useState<Job | null>(null);
   const [coverLetter, setCoverLetter] = useState<Job | null>(null);
+  const [localReview, setLocalReview] = useState<Job | null>(null);
   const [query, setQuery] = useState("");
   const [scoreFilter, setScoreFilter] = useState(0);
   const [locationFilter, setLocationFilter] = useState("all");
@@ -237,9 +238,10 @@ export function JobDashboard() {
         )}
       </main>
 
-      {selected && <JobPanel job={selected} profile={profile} onClose={() => setSelected(null)} onSave={() => updateStatus(selected, selected.status === "saved" ? "new" : "saved")} onOpen={() => openApplication(selected)} onApplied={() => updateStatus(selected, "applied")} onTailor={() => setTailoring(selected)} onCoverLetter={() => setCoverLetter(selected)} />}
+      {selected && <JobPanel job={selected} profile={profile} onClose={() => setSelected(null)} onSave={() => updateStatus(selected, selected.status === "saved" ? "new" : "saved")} onOpen={() => openApplication(selected)} onApplied={() => updateStatus(selected, "applied")} onTailor={() => setTailoring(selected)} onCoverLetter={() => setCoverLetter(selected)} onLocalReview={() => setLocalReview(selected)} />}
       {tailoring && <TailorResumeModal job={tailoring} onClose={() => setTailoring(null)} />}
       {coverLetter && <CoverLetterModal job={coverLetter} onClose={() => setCoverLetter(null)} />}
+      {localReview && <LocalReviewModal job={localReview} onClose={() => setLocalReview(null)} />}
     </div>
   );
 }
@@ -264,7 +266,7 @@ function FilterSelect({ label, value, onChange, options }: { label: string; valu
   return <label className="filter-select"><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value)}>{options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}</select></label>;
 }
 
-function JobPanel({ job, profile, onClose, onSave, onOpen, onApplied, onTailor, onCoverLetter }: { job: Job; profile: Profile; onClose: () => void; onSave: () => void; onOpen: () => void; onApplied: () => void; onTailor: () => void; onCoverLetter: () => void }) {
+function JobPanel({ job, profile, onClose, onSave, onOpen, onApplied, onTailor, onCoverLetter, onLocalReview }: { job: Job; profile: Profile; onClose: () => void; onSave: () => void; onOpen: () => void; onApplied: () => void; onTailor: () => void; onCoverLetter: () => void; onLocalReview: () => void }) {
   const skillScore = Math.min(100, Math.round(((job.match.matchedSkills || []).length / Math.max(4, Math.min(profile.skills.length || 4, 8))) * 100));
   const experienceScore = job.match.experienceNeeded ? (profile.yearsExperience >= job.match.experienceNeeded ? 100 : Math.max(15, Math.round((profile.yearsExperience / job.match.experienceNeeded) * 100))) : 75;
   const roleScore = profile.preferredTitles.some((title) => job.title.toLowerCase().includes(title.toLowerCase())) ? 100 : 55;
@@ -273,9 +275,22 @@ function JobPanel({ job, profile, onClose, onSave, onOpen, onApplied, onTailor, 
       <header className="detail-top"><button onClick={onClose} aria-label="Close details"><X size={21} /></button><div><span>{relativeDate(job.published_at || job.updated_at)}</span><span>{job.status === "saved" ? "Saved role" : "Ready to review"}</span></div><div className="detail-top-actions"><button onClick={onSave}><Bookmark size={16} />{job.status === "saved" ? "Saved" : "Save"}</button><button className="button primary" onClick={onOpen}>Open application <ArrowUpRight size={16} /></button></div></header>
       <section className="detail-hero"><div className="detail-company"><span className="company-logo large">{initials(job.company)}</span><span>{job.company}</span></div><h2>{job.title}</h2><div className="detail-layout"><div><div className="detail-meta"><span><MapPin size={17} />{job.location}</span><span><Clock3 size={17} />Full-time</span><span><CalendarDays size={17} />{job.match.experienceNeeded ? `${job.match.experienceNeeded}+ years experience` : "Experience flexible"}</span></div><p className="detail-description">{job.description || "Open the official application to read the full description."}</p><section className="detail-section"><h3>Relevant skills</h3><div className="drawer-skills">{(job.match.matchedSkills || []).length ? job.match.matchedSkills!.map((skill) => <span key={skill}>{skill}</span>) : <span className="muted">No direct skill overlap detected yet.</span>}</div></section></div><aside className="breakdown-card"><div className="breakdown-score"><strong>{job.score}%</strong><span>{job.verdict === "strong" ? "Strong match" : job.verdict === "possible" ? "Good match" : "Review match"}</span></div><div className="breakdown-lines"><span>Experience fit <b>{experienceScore}%</b></span><i><em style={{ width: `${experienceScore}%` }} /></i><span>Skill alignment <b>{skillScore}%</b></span><i><em style={{ width: `${skillScore}%` }} /></i><span>Role focus <b>{roleScore}%</b></span><i><em style={{ width: `${roleScore}%` }} /></i></div></aside></div></section>
       <section className="detail-reasons"><h3>Why this role is showing up</h3><ul>{(job.match.reasons || []).map((reason) => <li key={reason}><Check size={16} />{reason}</li>)}</ul></section>
-      <section className="application-tools"><button onClick={onCoverLetter}><Mail size={20} /><span><b>Build cover letter</b><small>Use this role, skills, and your verified achievements</small></span><ChevronRight size={18} /></button><button onClick={onTailor}><WandSparkles size={20} /><span><b>Tailor résumé</b><small>Create a truthful job-specific résumé draft</small></span><ChevronRight size={18} /></button><button onClick={onApplied}><Check size={20} /><span><b>Mark as applied</b><small>Keep your application pipeline up to date</small></span><ChevronRight size={18} /></button></section>
+      <section className="application-tools"><button onClick={onLocalReview}><Bot size={20} /><span><b>Review with local AI</b><small>Run Qwen3 on this Mac across JD, experience, degree, and location</small></span><ChevronRight size={18} /></button><button onClick={onCoverLetter}><Mail size={20} /><span><b>Build cover letter</b><small>Use this role, skills, and your verified achievements</small></span><ChevronRight size={18} /></button><button onClick={onTailor}><WandSparkles size={20} /><span><b>Tailor résumé</b><small>Create a truthful job-specific résumé draft</small></span><ChevronRight size={18} /></button><button onClick={onApplied}><Check size={20} /><span><b>Mark as applied</b><small>Keep your application pipeline up to date</small></span><ChevronRight size={18} /></button></section>
     </main>
   </div>;
+}
+
+type LocalReview = { jdFit: number; experienceFit: number; qualificationFit: number; locationFit: number; confidence: "low" | "medium" | "high"; missingMustHaves: string[]; evidence: string[]; recommendation: "apply" | "review" | "skip" };
+
+function LocalReviewModal({ job, onClose }: { job: Job; onClose: () => void }) {
+  const [review, setReview] = useState<LocalReview | null>(null);
+  const [model, setModel] = useState("qwen3:1.7b");
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    api<{ model: string; review: LocalReview }>(`/jobs/${job.id}/local-review`, { method: "POST" }).then((result) => { setModel(result.model); setReview(result.review); }).catch((error) => setMessage(error instanceof Error ? error.message : "Could not run the local model"));
+  }, [job.id]);
+  const dimensions = review ? [["JD fit", review.jdFit], ["Experience", review.experienceFit], ["Qualifications", review.qualificationFit], ["Location", review.locationFit]] as [string, number][] : [];
+  return <div className="tailor-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="tailor-modal local-review-modal" role="dialog" aria-modal="true" aria-label="Local AI job review"><header><div><p className="eyebrow">Private local review · {model}</p><h2>Evidence check for this role</h2><p>{job.company} · {job.title}</p></div><button onClick={onClose} aria-label="Close"><X size={19} /></button></header>{message ? <div className="notice"><CircleAlert size={15} />{message}<span>Start Ollama with <code>brew services start ollama</code>.</span></div> : !review ? <div className="tailor-loading">Reading the job description and your verified profile locally…</div> : <><div className="local-review-summary"><strong>{Math.round(dimensions.reduce((sum, [, value]) => sum + value, 0) / dimensions.length)}%</strong><span>{review.recommendation === "apply" ? "Worth applying" : review.recommendation === "skip" ? "Skip this role" : "Review before applying"}</span><small>{review.confidence} confidence · no data leaves this Mac</small></div><div className="local-review-dimensions">{dimensions.map(([label, value]) => <div key={label}><span>{label}<b>{value}%</b></span><i><em style={{ width: `${value}%` }} /></i></div>)}</div><section className="local-review-columns"><div><h3>Missing must-haves</h3>{review.missingMustHaves.length ? <ul>{review.missingMustHaves.map((item) => <li key={item}>{item}</li>)}</ul> : <p className="muted">No explicit missing must-haves detected.</p>}</div><div><h3>Evidence from your profile</h3>{review.evidence.length ? <ul>{review.evidence.map((item) => <li key={item}>{item}</li>)}</ul> : <p className="muted">The model found no reliable evidence.</p>}</div></section><footer><span>Qwen3 is a second opinion; the explainable matcher remains primary.</span><button className="button secondary" onClick={onClose}>Done</button></footer></>}</section></div>;
 }
 
 type CoverLetter = { body: string; updated_at?: string | null };

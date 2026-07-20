@@ -228,6 +228,19 @@ button.keyword.selected { border-color: #9acbaa; background: #e5f5e9; color: #21
 .application-tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 13px; padding-top: 25px; border-top: 1px solid var(--line); }
 .application-tools button { display: grid; grid-template-columns: 22px 1fr 18px; align-items: center; gap: 10px; min-height: 88px; padding: 15px; border: 1px solid var(--line); border-radius: 12px; background: #fff; text-align: left; cursor: pointer; }
 .application-tools button:hover { border-color: #a6cfb0; background: #f8fcf8; }
+.local-review-summary { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 15px; padding: 16px; border: 1px solid #cce3d2; border-radius: 12px; background: #f1fbf3; }
+.local-review-summary strong { font-size: 34px; letter-spacing: -.06em; color: var(--green); }
+.local-review-summary span { font-size: 15px; font-weight: 800; }
+.local-review-summary small { grid-column: 2; color: #718077; font-size: 11px; }
+.local-review-dimensions { display: grid; gap: 12px; margin: 19px 0; padding: 17px; border: 1px solid var(--line); border-radius: 12px; }
+.local-review-dimensions span { display: flex; justify-content: space-between; font-size: 12px; }
+.local-review-dimensions i { display: block; height: 7px; margin-top: 5px; overflow: hidden; border-radius: 8px; background: #edf1ed; }
+.local-review-dimensions em { display: block; height: 100%; border-radius: inherit; background: #14ba9e; }
+.local-review-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+.local-review-columns > div { padding: 15px; border: 1px solid var(--line); border-radius: 12px; }
+.local-review-columns h3 { margin: 0 0 9px; font-size: 13px; }
+.local-review-columns ul { margin: 0; padding-left: 17px; color: #59685f; font-size: 12px; line-height: 1.55; }
+.local-review-columns p { margin: 0; font-size: 12px; }
 .application-tools button > svg:first-child { color: var(--green); }
 .application-tools span { display: grid; gap: 4px; }
 .application-tools b { font-size: 12px; }
