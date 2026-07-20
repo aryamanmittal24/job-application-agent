@@ -512,11 +512,11 @@ const server = http.createServer(async (req, res) => {
       const limit = Math.min(200, Number(url.searchParams.get("limit") || 80));
       const rows = db.prepare(`SELECT jobs.* FROM jobs
         INNER JOIN sources ON sources.id = jobs.source_id AND sources.enabled = 1
-        WHERE score >= ? AND (? = 'all' OR status = ?)
-          AND (? != 'all' OR verdict != 'skip')
-          AND (? = '' OR LOWER(COALESCE(location, '')) LIKE ? OR LOWER(COALESCE(location, '')) LIKE ?)
-          AND (title LIKE ? OR company LIKE ? OR location LIKE ? OR description LIKE ?)
-        ORDER BY score DESC, COALESCE(published_at, updated_at, discovered_at) DESC
+        WHERE jobs.score >= ? AND (? = 'all' OR jobs.status = ?)
+          AND (? != 'all' OR jobs.verdict != 'skip')
+          AND (? = '' OR LOWER(COALESCE(jobs.location, '')) LIKE ? OR LOWER(COALESCE(jobs.location, '')) LIKE ?)
+          AND (jobs.title LIKE ? OR jobs.company LIKE ? OR jobs.location LIKE ? OR jobs.description LIKE ?)
+        ORDER BY jobs.score DESC, COALESCE(jobs.published_at, jobs.updated_at, jobs.discovered_at) DESC
         LIMIT ?`).all(minScore, status, status, status, location, `%${location}%`, `%${locationAlias}%`, q, q, q, q, limit);
       return json(res, 200, rows.map(publicJob));
     }
