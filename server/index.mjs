@@ -8,6 +8,7 @@ import { PDFParse } from "pdf-parse";
 import { scoreJob, stripHtml } from "./lib/matcher.mjs";
 import { tailorResume } from "./lib/resume-tailor.mjs";
 import { buildCoverLetter } from "./lib/cover-letter.mjs";
+import { localModelStatus, reviewJobWithLocalModel } from "./lib/local-llm.mjs";
 
 const PORT = Number(process.env.JOB_AGENT_API_PORT || 4010);
 const DB_PATH = resolve(process.env.JOB_AGENT_DB || "data/job-agent.sqlite");
@@ -379,6 +380,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/health") {
       return json(res, 200, { ok: true, database: DB_PATH });
     }
+    if (req.method === "GET" && url.pathname === "/api/llm/status") {
+      return json(res, 200, await localModelStatus());
+    }
     if (req.method === "GET" && url.pathname === "/api/profile") {
       return json(res, 200, getProfile());
     }
@@ -578,6 +582,15 @@ const server = http.createServer(async (req, res) => {
         await writeFile(filePath, draftText, "utf8");
         return json(res, 200, { ok: true, updated_at: now, file_path: filePath });
       }
+    }
+    const localReviewMatch = url.pathname.match(/^\/api\/jobs\/(\d+)\/local-review$/);
+    if (req.method === "POST" && localReviewMatch) {
+      const job = db.prepare("SELECT * FROM jobs WHERE id = ?").get(Number(localReviewMatch[1]));
+      if (!job) return json(res, 404, { error: "Job not found" });
+      const profile = getProfile();
+      const deterministicMatch = JSON.parse(job.match_data || "{}");
+      const review = await reviewJobWithLocalModel({ job, profile, deterministicMatch });
+      return json(res, 200, { model: process.env.JOB_AGENT_OLLAMA_MODEL || "qwen3:1.7b", review });
     }
     const statusMatch = url.pathname.match(/^\/api\/jobs\/(\d+)\/status$/);
     if (req.method === "PATCH" && statusMatch) {

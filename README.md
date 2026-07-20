@@ -17,11 +17,13 @@ The extension never submits an application. Unknown, legal, demographic, sponsor
 - Greenhouse question-schema endpoint for future preflight checks
 - Manifest V3 extension supporting Greenhouse, Lever, Workday, Ashby, and Workable pages
 - SQLite duplicate prevention by source and external job ID
+- Optional local Qwen3 1.7B review for borderline matches (via Ollama)
 
 ## Requirements
 
 - Node.js 22.13 or newer
 - Chrome or Chromium for the extension
+- Ollama (optional, only needed for local model review)
 
 ## Run locally
 
@@ -31,6 +33,18 @@ npm run dev:all
 ```
 
 Open `http://localhost:3000`. The local API runs on `http://127.0.0.1:4010`, and the SQLite file is created at `data/job-agent.sqlite`.
+
+## Optional local model review
+
+JobPilot's primary score stays deterministic and explainable. For a second opinion on a specific role, install Ollama and pull the compact Qwen3 model:
+
+```bash
+brew install ollama
+brew services start ollama
+ollama pull qwen3:1.7b
+```
+
+The model is stored by Ollama (not inside this repository) and is about 1.4 GB. Check it with `curl http://127.0.0.1:4010/api/llm/status`, then request a review for a stored job with `POST /api/jobs/<id>/local-review`. Résumé and job text stay on this machine. Set `JOB_AGENT_OLLAMA_MODEL` or `JOB_AGENT_OLLAMA_URL` if you want to use a different local model/server. The app continues to work when Ollama is unavailable.
 
 ## Load the Chrome extension
 
