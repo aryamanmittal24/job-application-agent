@@ -211,7 +211,7 @@ button.keyword.selected { border-color: #9acbaa; background: #e5f5e9; color: #21
 .review-columns h3 { margin: 0 0 8px; font-size: 11px; }
 .review-columns ul { margin: 0; padding-left: 15px; color: #66736c; font-size: 10px; line-height: 1.5; }
 .review-columns p { margin: 0; color: #758178; font-size: 10px; }
-.job-card { display: grid; grid-template-columns: minmax(0, 1fr) 190px; gap: 20px; min-height: 202px; padding: 22px 22px 22px 25px; border: 1px solid var(--line); border-radius: 16px; background: #fff; cursor: pointer; box-shadow: 0 8px 22px rgba(23,32,25,.035); transition: transform .16s ease, box-shadow .16s ease; }
+.job-card { display: grid; grid-template-columns: minmax(0, 1fr) 190px 190px; gap: 14px; min-height: 202px; padding: 22px 22px 22px 25px; border: 1px solid var(--line); border-radius: 16px; background: #fff; cursor: pointer; box-shadow: 0 8px 22px rgba(23,32,25,.035); transition: transform .16s ease, box-shadow .16s ease; }
 .job-card:hover { transform: translateY(-2px); box-shadow: 0 14px 30px rgba(23,32,25,.09); }
 .job-card-main { display: flex; gap: 17px; min-width: 0; }
 .card-logo { width: 62px; height: 62px; border-radius: 13px; font-size: 16px; }
@@ -234,6 +234,16 @@ button.keyword.selected { border-color: #9acbaa; background: #e5f5e9; color: #21
 .match-tile small { color: #d8ede3; font-size: 9px; }
 .match-tile.score-review { background: linear-gradient(150deg, #202726, #37413d); }
 .match-tile.score-possible { background: linear-gradient(150deg, #102b29, #075e62); }
+.qwen-match-tile { color: #27312c; border: 1px solid #d9d2ef; background: linear-gradient(150deg, #f7f3ff, #f0f9ff); }
+.qwen-match-tile strong { border-color: #9071d8; color: #5e478e; }
+.qwen-match-tile span { color: #5f557a; }
+.qwen-match-tile div { border-top-color: #dcd5ee; }
+.qwen-match-tile small { color: #706b7e; }
+.qwen-match-tile.qwen-complete strong { border-color: #6e54b2; color: #4f378b; }
+.qwen-match-tile.qwen-running { border-color: #bdb0e8; background: linear-gradient(150deg, #f3efff, #edf8ff); }
+.qwen-match-tile.qwen-running strong { border-color: #8d73d1; animation: qwen-pulse 1.3s ease-in-out infinite; }
+.qwen-pending-score { font-size: 37px !important; }
+@keyframes qwen-pulse { 50% { opacity: .46; transform: scale(.94); } }
 
 .detail-backdrop { position: fixed; inset: 0; z-index: 40; overflow: auto; padding: 26px; background: rgba(15,26,20,.38); backdrop-filter: blur(5px); }
 .job-detail { width: min(1280px, 100%); min-height: calc(100vh - 52px); margin: 0 auto; padding: 22px 34px 45px; border-radius: 20px; background: #fff; box-shadow: 0 28px 76px rgba(10,24,16,.28); animation: detail-enter .2s ease-out; }
