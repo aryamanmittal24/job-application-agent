@@ -27,7 +27,7 @@ type Profile = {
 };
 
 type Stats = { total: number; strong: number; saved: number; applied: number };
-type View = "jobs" | "saved" | "applications" | "resume" | "profile" | "sources" | "extension" | "ai-review";
+type View = "jobs" | "saved" | "applications" | "resume" | "profile" | "sources" | "extension";
 
 const emptyProfile: Profile = {
   firstName: "", lastName: "", email: "", phone: "", location: "", linkedin: "",
@@ -47,6 +47,10 @@ function relativeDate(value?: string) {
 
 function initials(company: string) {
   return company.split(/\s+/).slice(0, 2).map((word) => word[0]).join("").toUpperCase();
+}
+
+function reviewScore(review: LocalReview) {
+  return Math.round((review.jdFit + review.experienceFit + review.qualificationFit + review.locationFit) / 4);
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -78,6 +82,9 @@ export function JobDashboard() {
   const [syncing, setSyncing] = useState(false);
   const [online, setOnline] = useState(true);
   const [notice, setNotice] = useState("");
+  const [qwenReviews, setQwenReviews] = useState<Record<number, LocalReview>>({});
+  const [qwenRunning, setQwenRunning] = useState(false);
+  const [qwenProgress, setQwenProgress] = useState({ done: 0, total: 0 });
 
   const load = useCallback(async () => {
     try {
@@ -143,6 +150,26 @@ export function JobDashboard() {
     window.open(job.url, "_blank", "noopener,noreferrer");
   }
 
+  async function runQwenForPage() {
+    if (qwenRunning || !pagedJobs.length) return;
+    const queue = [...pagedJobs];
+    let next = 0;
+    setQwenRunning(true); setQwenProgress({ done: 0, total: queue.length });
+    const worker = async () => {
+      while (next < queue.length) {
+        const job = queue[next++];
+        try {
+          const result = await api<{ review: LocalReview }>(`/jobs/${job.id}/local-review`, { method: "POST" });
+          setQwenReviews((current) => ({ ...current, [job.id]: result.review }));
+        } catch (error) {
+          setNotice(error instanceof Error ? `Qwen review failed for ${job.company}: ${error.message}` : `Qwen review failed for ${job.company}`);
+        } finally { setQwenProgress((current) => ({ ...current, done: current.done + 1 })); }
+      }
+    };
+    await Promise.all([worker(), worker()]);
+    setQwenRunning(false);
+  }
+
   const title = view === "saved" ? "Saved roles" : view === "applications" ? "Applications" : "Your best matches";
 
   return (
@@ -162,7 +189,6 @@ export function JobDashboard() {
           <NavButton active={view === "resume"} icon={<FilePenLine size={17} />} label="My résumé" onClick={() => setView("resume")} />
           <NavButton active={view === "profile"} icon={<UserRound size={17} />} label="My profile" onClick={() => setView("profile")} />
           <NavButton active={view === "sources"} icon={<Database size={17} />} label="Job sources" onClick={() => setView("sources")} />
-          <NavButton active={view === "ai-review"} icon={<Bot size={17} />} label="AI review" onClick={() => setView("ai-review")} />
           <NavButton active={view === "extension"} icon={<WandSparkles size={17} />} label="Autofill extension" onClick={() => setView("extension")} />
         </nav>
         <div className="sidebar-foot">
@@ -181,8 +207,6 @@ export function JobDashboard() {
           <ProfileView profile={profile} onSaved={(saved) => { setProfile(saved); setNotice("Profile saved. All jobs were rescored."); }} />
         ) : view === "sources" ? (
           <SourcesView onSync={sync} syncing={syncing} />
-        ) : view === "ai-review" ? (
-          <LocalReviewView />
         ) : view === "extension" ? (
           <ExtensionView />
         ) : (
@@ -227,14 +251,14 @@ export function JobDashboard() {
             <section className="list-section">
               <div className="list-heading">
                 <div><h2>Recommended roles</h2><span>{visibleJobs.length ? `${(page - 1) * 25 + 1}–${Math.min(page * 25, visibleJobs.length)} of ${visibleJobs.length}` : "0 shown"}</span></div>
-                <div className="score-filter" aria-label="Match score filter">
+                <div className="list-heading-actions"><button className="button secondary qwen-page-button" onClick={() => void runQwenForPage()} disabled={qwenRunning || !pagedJobs.length}><Bot size={15} />{qwenRunning ? `Reviewing ${qwenProgress.done}/${qwenProgress.total}` : `Run Qwen for ${pagedJobs.length} roles`}</button><div className="score-filter" aria-label="Match score filter">
                   {[0, 55, 72].map((value) => <button key={value} className={scoreFilter === value ? "active" : ""} onClick={() => setScoreFilter(value)}>{value === 0 ? "All" : value === 55 ? "55+" : "72+"}</button>)}
-                </div>
+                </div></div>
               </div>
               <div className="job-list job-card-list">
                 {loading ? <LoadingRows /> : pagedJobs.length ? pagedJobs.map((job) => (
                   <article className="job-card" key={job.id} onClick={() => setSelected(job)}>
-                    <div className="job-card-main"><span className="company-logo card-logo">{initials(job.company)}</span><div className="job-card-copy"><div className="job-card-tags"><span>{relativeDate(job.published_at || job.updated_at)}</span>{job.score >= 70 && <span>High-potential role</span>}</div><h3>{job.title}</h3><p>{job.company}</p><div className="job-card-meta"><span><MapPin size={15} />{job.location}</span><span><Clock3 size={15} />Full-time</span><span><CalendarDays size={15} />{job.match.experienceNeeded ? `${job.match.experienceNeeded}+ years exp` : "Experience flexible"}</span></div><div className="job-card-actions"><button className="mini-button" onClick={(event) => { event.stopPropagation(); void updateStatus(job, job.status === "saved" ? "new" : "saved"); }}>{job.status === "saved" ? "Saved" : "Save"}</button><button className="button primary" onClick={(event) => { event.stopPropagation(); void openApplication(job); }}>Open application <ArrowUpRight size={15} /></button></div></div></div>
+                    <div className="job-card-main"><span className="company-logo card-logo">{initials(job.company)}</span><div className="job-card-copy"><div className="job-card-tags"><span>{relativeDate(job.published_at || job.updated_at)}</span>{job.score >= 70 && <span>High-potential role</span>}{qwenReviews[job.id] && <span className="qwen-result-badge">Qwen {reviewScore(qwenReviews[job.id])}%</span>}</div><h3>{job.title}</h3><p>{job.company}</p><div className="job-card-meta"><span><MapPin size={15} />{job.location}</span><span><Clock3 size={15} />Full-time</span><span><CalendarDays size={15} />{job.match.experienceNeeded ? `${job.match.experienceNeeded}+ years exp` : "Experience flexible"}</span></div><div className="job-card-actions"><button className="mini-button" onClick={(event) => { event.stopPropagation(); void updateStatus(job, job.status === "saved" ? "new" : "saved"); }}>{job.status === "saved" ? "Saved" : "Save"}</button><button className="button primary" onClick={(event) => { event.stopPropagation(); void openApplication(job); }}>Open application <ArrowUpRight size={15} /></button></div></div></div>
                     <aside className={`match-tile score-${job.verdict}`}><strong>{job.score}%</strong><span>{job.verdict === "strong" ? "Strong match" : job.verdict === "possible" ? "Good match" : "Review match"}</span><div>{(job.match.matchedSkills || []).slice(0, 3).map((skill) => <small key={skill}>✓ {skill}</small>)}</div></aside>
                   </article>
                 )) : <EmptyJobs onSync={sync} onProfile={() => setView("profile")} />}

@@ -80,6 +80,9 @@ h1 { margin: 0; font-family: Georgia, 'Times New Roman', serif; font-size: clamp
 .filter-reset { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 11px; border: 1px solid var(--line-strong); border-radius: 8px; background: white; color: #58645b; font-size: 11px; font-weight: 700; cursor: pointer; }
 .list-section { border-top: 1px solid var(--line); padding-top: 23px; }
 .list-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 11px; }
+.list-heading-actions { display: flex; align-items: center; gap: 12px; }
+.qwen-page-button { white-space: nowrap; }
+.qwen-result-badge { background: #f0eaff !important; color: #66539a !important; }
 .list-heading > div:first-child { display: flex; align-items: baseline; gap: 10px; }
 .list-heading h2 { margin: 0; font-size: 16px; }
 .list-heading span { color: #879088; font-size: 11px; }
@@ -471,6 +474,9 @@ button.keyword.selected { border-color: #9acbaa; background: #e5f5e9; color: #21
   .review-focus-heading { flex-direction: column; }
   .review-focus-heading .button { width: 100%; }
   .review-columns { grid-template-columns: 1fr; }
+  .list-heading { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .list-heading-actions { width: 100%; justify-content: space-between; }
+  .qwen-page-button { flex: 1; }
 }
 @media (max-width: 460px) {
   h1 { font-size: 32px; }
