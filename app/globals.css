@@ -214,6 +214,17 @@ button.keyword.selected { border-color: #9acbaa; background: #e5f5e9; color: #21
 .detail-section { margin-top: 27px; }
 .detail-section h3, .detail-reasons h3 { margin: 0 0 11px; font-size: 13px; }
 .breakdown-card { align-self: start; padding: 19px; border: 1px solid #d8efeb; border-radius: 15px; background: linear-gradient(135deg, #eaf9ff, #edfff4); }
+.score-panes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; align-self: start; }
+.pane-label { display: flex; align-items: center; gap: 6px; margin-bottom: 13px; color: #49685a; font-size: 10px; font-weight: 850; letter-spacing: .06em; text-transform: uppercase; }
+.qwen-pane { border-color: #d9d2ef; background: linear-gradient(135deg, #f7f3ff, #f4fbff); }
+.qwen-pane p { min-height: 52px; margin: 10px 0 14px; color: #66716c; font-size: 11px; line-height: 1.45; }
+.qwen-pane > button { width: 100%; }
+.qwen-idle { display: block; font-size: 24px; letter-spacing: -.04em; }
+.qwen-summary { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+.qwen-summary strong { font-size: 31px; letter-spacing: -.06em; }
+.qwen-summary span { font-size: 11px; font-weight: 850; text-transform: uppercase; }
+.qwen-error { margin: 8px 0; color: #9a4f3c; font-size: 11px; }
+.pane-note { display: block; margin-top: 14px; color: #718077; font-size: 10px; line-height: 1.35; }
 .breakdown-score { display: flex; align-items: center; justify-content: space-between; padding-bottom: 15px; border-bottom: 1px solid #d1ece6; }
 .breakdown-score strong { font-size: 38px; letter-spacing: -.06em; }
 .breakdown-score span { font-size: 12px; font-weight: 850; text-transform: uppercase; }
@@ -414,6 +425,7 @@ button.keyword.selected { border-color: #9acbaa; background: #e5f5e9; color: #21
   .detail-hero { padding-top: 26px; }
   .detail-layout { grid-template-columns: 1fr; gap: 24px; }
   .application-tools { grid-template-columns: 1fr; }
+  .score-panes { grid-template-columns: 1fr; }
 }
 @media (max-width: 460px) {
   h1 { font-size: 32px; }
