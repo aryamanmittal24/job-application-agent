@@ -14,8 +14,8 @@ const REVIEW_SCHEMA = {
     qualificationFit: { type: "integer", minimum: 0, maximum: 100 },
     locationFit: { type: "integer", minimum: 0, maximum: 100 },
     confidence: { type: "string", enum: ["low", "medium", "high"] },
-    missingMustHaves: { type: "array", items: { type: "string" }, maxItems: 8 },
-    evidence: { type: "array", items: { type: "string" }, maxItems: 8 },
+    missingMustHaves: { type: "array", items: { type: "string" }, maxItems: 3 },
+    evidence: { type: "array", items: { type: "string" }, maxItems: 3 },
     recommendation: { type: "string", enum: ["apply", "review", "skip"] },
   },
   required: ["jdFit", "experienceFit", "qualificationFit", "locationFit", "confidence", "missingMustHaves", "evidence", "recommendation"],
@@ -65,17 +65,17 @@ export async function reviewJobWithLocalModel({ job, profile, deterministicMatch
     "You are a conservative job-match reviewer. Never invent experience, skills, degree, work authorization, or location eligibility.",
     "Use the deterministic score as an input, not as a fact. Return JSON only with this shape:",
     '{"jdFit":0,"experienceFit":0,"qualificationFit":0,"locationFit":0,"confidence":"low|medium|high","missingMustHaves":[],"evidence":[],"recommendation":"apply|review|skip"}',
-    "Score each dimension from 0 to 100. Use realistic scores, not 0/1. Treat an explicit required qualification or seniority mismatch as more important than keyword overlap.",
+    "Score each dimension from 0 to 100. Use realistic scores, not 0/1. Treat an explicit required qualification or seniority mismatch as more important than keyword overlap. Return at most 3 short evidence items and 3 missing must-haves.",
     `Deterministic match: ${JSON.stringify(deterministicMatch)}`,
     "/no_think",
     `Profile: ${JSON.stringify({ yearsExperience: profile.yearsExperience, preferredTitles: profile.preferredTitles, preferredLocations: profile.preferredLocations, school: profile.school, degree: profile.degree, skills: profile.skills, achievements: profile.achievements })}`,
-    `Job: ${JSON.stringify({ title: job.title, company: job.company, location: job.location, description: String(job.description || "").slice(0, 9000) })}`,
+    `Job: ${JSON.stringify({ title: job.title, company: job.company, location: job.location, description: String(job.description || "").slice(0, 5000) })}`,
   ].join("\n\n");
   try {
     await log("request", { jobId: job.id, company: job.company, title: job.title });
     const data = await ollama("/api/generate", {
       method: "POST",
-      body: JSON.stringify({ model: LOCAL_MODEL, prompt, stream: false, think: false, format: REVIEW_SCHEMA, options: { temperature: 0, num_ctx: 8192 } }),
+      body: JSON.stringify({ model: LOCAL_MODEL, prompt, stream: false, think: false, format: REVIEW_SCHEMA, options: { temperature: 0, num_ctx: 6144, num_predict: 320 } }),
     });
     const parsed = extractJson(data.response);
   const score = (value, fallback = 50) => {
@@ -88,8 +88,8 @@ export async function reviewJobWithLocalModel({ job, profile, deterministicMatch
     qualificationFit: score(parsed.qualificationFit),
     locationFit: score(parsed.locationFit),
     confidence: ["low", "medium", "high"].includes(parsed.confidence) ? parsed.confidence : "low",
-    missingMustHaves: Array.isArray(parsed.missingMustHaves) ? parsed.missingMustHaves.map(String).slice(0, 8) : [],
-    evidence: Array.isArray(parsed.evidence) ? parsed.evidence.map(String).slice(0, 8) : [],
+    missingMustHaves: Array.isArray(parsed.missingMustHaves) ? parsed.missingMustHaves.map(String).slice(0, 3) : [],
+    evidence: Array.isArray(parsed.evidence) ? parsed.evidence.map(String).slice(0, 3) : [],
     recommendation: ["apply", "review", "skip"].includes(parsed.recommendation) ? parsed.recommendation : "review",
     };
     await log("response", { jobId: job.id, durationMs: Date.now() - started, rawResponse: String(data.response || "").slice(0, 2000), review });

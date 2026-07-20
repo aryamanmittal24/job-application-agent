@@ -28,6 +28,10 @@ type Profile = {
 
 type Stats = { total: number; strong: number; saved: number; applied: number };
 type View = "jobs" | "saved" | "applications" | "resume" | "profile" | "sources" | "extension";
+type LocalReviewBatch = {
+  id: string; status: "running" | "completed" | "completed_with_errors"; total: number; done: number;
+  reviews: Record<string, LocalReview>; errors: Record<string, string>; concurrency: number;
+};
 
 const emptyProfile: Profile = {
   firstName: "", lastName: "", email: "", phone: "", location: "", linkedin: "",
@@ -85,6 +89,7 @@ export function JobDashboard() {
   const [qwenReviews, setQwenReviews] = useState<Record<number, LocalReview>>({});
   const [qwenRunning, setQwenRunning] = useState(false);
   const [qwenProgress, setQwenProgress] = useState({ done: 0, total: 0 });
+  const [qwenBatchId, setQwenBatchId] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -150,24 +155,57 @@ export function JobDashboard() {
     window.open(job.url, "_blank", "noopener,noreferrer");
   }
 
-  async function runQwenForPage() {
-    if (qwenRunning || !pagedJobs.length) return;
-    const queue = [...pagedJobs];
-    let next = 0;
-    setQwenRunning(true); setQwenProgress({ done: 0, total: queue.length });
-    const worker = async () => {
-      while (next < queue.length) {
-        const job = queue[next++];
-        try {
-          const result = await api<{ review: LocalReview }>(`/jobs/${job.id}/local-review`, { method: "POST" });
-          setQwenReviews((current) => ({ ...current, [job.id]: result.review }));
-        } catch (error) {
-          setNotice(error instanceof Error ? `Qwen review failed for ${job.company}: ${error.message}` : `Qwen review failed for ${job.company}`);
-        } finally { setQwenProgress((current) => ({ ...current, done: current.done + 1 })); }
+  const applyQwenBatch = useCallback((batch: LocalReviewBatch) => {
+    const reviews = Object.fromEntries(Object.entries(batch.reviews).map(([id, review]) => [Number(id), review]));
+    setQwenReviews((current) => ({ ...current, ...reviews }));
+    setQwenProgress({ done: batch.done, total: batch.total });
+    const running = batch.status === "running";
+    setQwenRunning(running);
+    if (!running) {
+      window.localStorage.removeItem("jobpilot-qwen-batch");
+      setQwenBatchId("");
+      const failures = Object.keys(batch.errors).length;
+      if (failures) setNotice(`${batch.done - failures}/${batch.total} Qwen reviews completed. ${failures} could not be reviewed; try those again later.`);
+    }
+  }, []);
+
+  useEffect(() => {
+    const restored = window.localStorage.getItem("jobpilot-qwen-batch");
+    if (restored) setQwenBatchId(restored);
+  }, []);
+
+  useEffect(() => {
+    if (!qwenBatchId) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const batch = await api<LocalReviewBatch>(`/llm/review-batches/${qwenBatchId}`);
+        if (!cancelled) applyQwenBatch(batch);
+      } catch (error) {
+        if (!cancelled) {
+          setQwenRunning(false);
+          setQwenBatchId("");
+          window.localStorage.removeItem("jobpilot-qwen-batch");
+          setNotice(error instanceof Error ? error.message : "The Qwen review queue is no longer available.");
+        }
       }
     };
-    await Promise.all([worker(), worker()]);
-    setQwenRunning(false);
+    void poll();
+    const timer = window.setInterval(() => void poll(), 1200);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [qwenBatchId, applyQwenBatch]);
+
+  async function runQwenForPage() {
+    if (qwenRunning || !pagedJobs.length) return;
+    setNotice("");
+    try {
+      const batch = await api<LocalReviewBatch>("/llm/review-batches", { method: "POST", body: JSON.stringify({ jobIds: pagedJobs.map((job) => job.id) }) });
+      window.localStorage.setItem("jobpilot-qwen-batch", batch.id);
+      setQwenBatchId(batch.id);
+      applyQwenBatch(batch);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Could not start the local Qwen review.");
+    }
   }
 
   const title = view === "saved" ? "Saved roles" : view === "applications" ? "Applications" : "Your best matches";

@@ -14,6 +14,8 @@ const PORT = Number(process.env.JOB_AGENT_API_PORT || 4010);
 const DB_PATH = resolve(process.env.JOB_AGENT_DB || "data/job-agent.sqlite");
 const TAILORED_RESUME_DIR = resolve(process.env.JOB_AGENT_TAILORED_DIR || "data/tailored-resumes");
 const COVER_LETTER_DIR = resolve(process.env.JOB_AGENT_COVER_LETTER_DIR || "data/cover-letters");
+const LOCAL_REVIEW_BATCH_CONCURRENCY = Math.max(1, Math.min(4, Number(process.env.JOB_AGENT_QWEN_CONCURRENCY || 1)));
+const localReviewBatches = new Map();
 mkdirSync(dirname(DB_PATH), { recursive: true });
 mkdirSync(TAILORED_RESUME_DIR, { recursive: true });
 mkdirSync(COVER_LETTER_DIR, { recursive: true });
@@ -371,6 +373,43 @@ async function syncAll() {
   return Promise.all(sources.map((source) => syncSource(source, profile)));
 }
 
+function publicLocalReviewBatch(batch) {
+  return {
+    id: batch.id,
+    status: batch.status,
+    total: batch.total,
+    done: batch.done,
+    startedAt: batch.startedAt,
+    completedAt: batch.completedAt || null,
+    concurrency: batch.concurrency,
+    reviews: batch.reviews,
+    errors: batch.errors,
+  };
+}
+
+async function runLocalReviewBatch(batch) {
+  const profile = getProfile();
+  let next = 0;
+  const worker = async () => {
+    while (next < batch.jobIds.length) {
+      const jobId = batch.jobIds[next++];
+      try {
+        const job = db.prepare("SELECT * FROM jobs WHERE id = ?").get(jobId);
+        if (!job) throw new Error("Job no longer exists");
+        const review = await reviewJobWithLocalModel({ job, profile, deterministicMatch: JSON.parse(job.match_data || "{}") });
+        batch.reviews[jobId] = review;
+      } catch (error) {
+        batch.errors[jobId] = error.message || "Local review failed";
+      } finally {
+        batch.done += 1;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(batch.concurrency, batch.jobIds.length) }, worker));
+  batch.status = Object.keys(batch.errors).length ? "completed_with_errors" : "completed";
+  batch.completedAt = new Date().toISOString();
+}
+
 const server = http.createServer(async (req, res) => {
   cors(req, res);
   if (req.method === "OPTIONS") return json(res, 204, {});
@@ -385,6 +424,32 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/api/llm/logs") {
       return json(res, 200, { path: LOCAL_LOG_PATH, entries: await readLocalModelLogs(Number(url.searchParams.get("limit") || 80)) });
+    }
+    if (req.method === "POST" && url.pathname === "/api/llm/review-batches") {
+      const incoming = await body(req);
+      const jobIds = [...new Set((Array.isArray(incoming.jobIds) ? incoming.jobIds : []).map(Number).filter(Number.isInteger))].slice(0, 25);
+      if (!jobIds.length) return json(res, 400, { error: "Choose one to 25 jobs to review" });
+      const batch = {
+        id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        jobIds,
+        status: "running",
+        total: jobIds.length,
+        done: 0,
+        startedAt: new Date().toISOString(),
+        completedAt: null,
+        concurrency: LOCAL_REVIEW_BATCH_CONCURRENCY,
+        reviews: {},
+        errors: {},
+      };
+      localReviewBatches.set(batch.id, batch);
+      void runLocalReviewBatch(batch);
+      return json(res, 202, publicLocalReviewBatch(batch));
+    }
+    const batchMatch = url.pathname.match(/^\/api\/llm\/review-batches\/([a-z0-9-]+)$/i);
+    if (req.method === "GET" && batchMatch) {
+      const batch = localReviewBatches.get(batchMatch[1]);
+      if (!batch) return json(res, 404, { error: "Review batch expired. Run it again from Discover." });
+      return json(res, 200, publicLocalReviewBatch(batch));
     }
     if (req.method === "GET" && url.pathname === "/api/profile") {
       return json(res, 200, getProfile());
