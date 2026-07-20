@@ -69,8 +69,12 @@ db.exec(`CREATE TABLE IF NOT EXISTS target_companies (
   tier TEXT NOT NULL,
   compensation_band TEXT NOT NULL,
   career_url TEXT NOT NULL,
-  notes TEXT
+  notes TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1
 )`);
+if (!db.prepare("PRAGMA table_info(target_companies)").all().some((column) => column.name === "enabled")) {
+  db.exec("ALTER TABLE target_companies ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1");
+}
 db.exec(`CREATE TABLE IF NOT EXISTS tailored_resumes (
   job_id INTEGER PRIMARY KEY,
   keywords TEXT NOT NULL DEFAULT '[]',
@@ -446,17 +450,45 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/api/targets") {
       const rows = db.prepare(`SELECT target_companies.*, sources.id AS source_id,
-        sources.provider, sources.last_synced_at, sources.last_error,
+        sources.provider, sources.enabled AS source_enabled, sources.last_synced_at, sources.last_error,
         COUNT(jobs.id) AS job_count
         FROM target_companies
-        LEFT JOIN sources ON sources.company = target_companies.company AND sources.enabled = 1
+        LEFT JOIN sources ON sources.company = target_companies.company
         LEFT JOIN jobs ON jobs.source_id = sources.id
         GROUP BY target_companies.id
-        ORDER BY CASE target_companies.tier
-          WHEN 'Elite tier' THEN 1
-          WHEN 'Upper mid tier' THEN 2
-          ELSE 3 END, target_companies.company`).all();
+        ORDER BY target_companies.enabled DESC, target_companies.company`).all();
       return json(res, 200, rows);
+    }
+    if (req.method === "POST" && url.pathname === "/api/targets") {
+      const incoming = await body(req);
+      const company = String(incoming.company || "").trim();
+      const careerUrl = String(incoming.career_url || "").trim();
+      const provider = String(incoming.provider || "greenhouse").trim().toLowerCase();
+      const token = String(incoming.token || "").trim().toLowerCase();
+      if (!company || !careerUrl) return json(res, 400, { error: "Company and careers URL are required" });
+      if (token && !new Set(["greenhouse", "lever"]).has(provider)) return json(res, 400, { error: "Choose Greenhouse or Lever" });
+      db.prepare("INSERT INTO target_companies (company, tier, compensation_band, career_url, enabled) VALUES (?, 'Custom', '', ?, 1)").run(company, careerUrl);
+      if (token) db.prepare("INSERT INTO sources (company, provider, token, enabled) VALUES (?, ?, ?, 1)").run(company, provider, token);
+      return json(res, 201, { ok: true });
+    }
+    const targetMatch = url.pathname.match(/^\/api\/targets\/(\d+)$/);
+    if (targetMatch && req.method === "PATCH") {
+      const targetId = Number(targetMatch[1]);
+      const incoming = await body(req);
+      const target = db.prepare("SELECT company FROM target_companies WHERE id = ?").get(targetId);
+      if (!target) return json(res, 404, { error: "Company not found" });
+      const enabled = incoming.enabled ? 1 : 0;
+      db.prepare("UPDATE target_companies SET enabled = ? WHERE id = ?").run(enabled, targetId);
+      db.prepare("UPDATE sources SET enabled = ? WHERE company = ?").run(enabled, target.company);
+      return json(res, 200, { ok: true, enabled: Boolean(enabled) });
+    }
+    if (targetMatch && req.method === "DELETE") {
+      const targetId = Number(targetMatch[1]);
+      const target = db.prepare("SELECT company FROM target_companies WHERE id = ?").get(targetId);
+      if (!target) return json(res, 404, { error: "Company not found" });
+      db.prepare("DELETE FROM target_companies WHERE id = ?").run(targetId);
+      db.prepare("UPDATE sources SET enabled = 0 WHERE company = ?").run(target.company);
+      return json(res, 200, { ok: true });
     }
     if (req.method === "POST" && url.pathname === "/api/sources") {
       const incoming = await body(req);
@@ -478,7 +510,8 @@ const server = http.createServer(async (req, res) => {
       const location = (url.searchParams.get("location") || "").trim().toLowerCase();
       const locationAlias = location === "bengaluru" ? "bangalore" : location;
       const limit = Math.min(200, Number(url.searchParams.get("limit") || 80));
-      const rows = db.prepare(`SELECT * FROM jobs
+      const rows = db.prepare(`SELECT jobs.* FROM jobs
+        INNER JOIN sources ON sources.id = jobs.source_id AND sources.enabled = 1
         WHERE score >= ? AND (? = 'all' OR status = ?)
           AND (? != 'all' OR verdict != 'skip')
           AND (? = '' OR LOWER(COALESCE(location, '')) LIKE ? OR LOWER(COALESCE(location, '')) LIKE ?)
@@ -492,7 +525,7 @@ const server = http.createServer(async (req, res) => {
         SUM(CASE WHEN score >= 72 THEN 1 ELSE 0 END) AS strong,
         SUM(CASE WHEN status = 'saved' THEN 1 ELSE 0 END) AS saved,
         SUM(CASE WHEN status = 'applied' THEN 1 ELSE 0 END) AS applied
-        FROM jobs`).get();
+        FROM jobs INNER JOIN sources ON sources.id = jobs.source_id AND sources.enabled = 1`).get();
       return json(res, 200, row);
     }
     const coverLetterMatch = url.pathname.match(/^\/api\/jobs\/(\d+)\/cover-letter$/);

@@ -328,6 +328,35 @@ button.keyword.selected { border-color: #9acbaa; background: #e5f5e9; color: #21
 .safety-card svg { flex: 0 0 auto; }
 .safety-card h3 { margin: 0 0 5px; font-size: 12px; }
 .safety-card p { margin: 0; color: #876b4c; font-size: 10px; line-height: 1.5; }
+.watchlist-page { max-width: 1120px; }
+.watchlist-summary { display: grid; grid-template-columns: repeat(3, 1fr); margin-bottom: 22px; overflow: hidden; border: 1px solid #d6e4d8; border-radius: 14px; background: linear-gradient(110deg, #f1f8f2, #fafff9); }
+.watchlist-summary > div { display: grid; gap: 5px; padding: 18px 20px; border-right: 1px solid #d6e4d8; }
+.watchlist-summary > div:last-child { border-right: 0; }
+.watchlist-summary strong { font-family: Georgia, 'Times New Roman', serif; font-size: 29px; font-weight: 500; }
+.watchlist-summary span { color: #6c786e; font-size: 11px; }
+.watchlist-controls { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 0 0 13px; }
+.watchlist-controls .search-box { width: min(360px, 100%); }
+.watchlist-controls > span { color: #768178; font-size: 11px; }
+.watchlist-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.watchlist-card { display: grid; grid-template-columns: 22px 43px minmax(0, 1fr); align-items: center; gap: 11px; min-height: 94px; padding: 15px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.watchlist-card.is-paused { opacity: .58; background: #fafbf9; }
+.company-toggle { width: 20px; height: 20px; position: relative; cursor: pointer; }
+.company-toggle input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+.company-toggle span { display: block; width: 20px; height: 20px; border: 1px solid #b7c2b7; border-radius: 6px; background: #fff; }
+.company-toggle input:checked + span { border-color: #196442; background: #196442; }
+.company-toggle input:checked + span:after { content: "✓"; display: grid; place-items: center; height: 100%; color: #fff; font-size: 14px; font-weight: 800; }
+.watchlist-copy { display: grid; gap: 5px; min-width: 0; }
+.watchlist-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.watchlist-copy span { color: #758077; font-size: 10px; line-height: 1.35; }
+.watchlist-actions { grid-column: 3; display: flex; justify-content: flex-end; gap: 10px; }
+.watchlist-actions button { display: inline-flex; align-items: center; gap: 4px; border: 0; background: transparent; color: var(--green); font-size: 10px; font-weight: 750; cursor: pointer; }
+.watchlist-actions .remove-company { color: #9a5646; }
+.add-company-card { display: grid; grid-template-columns: .8fr 1.2fr; gap: 25px; margin-top: 25px; padding: 22px; border: 1px solid #d8e5da; border-radius: 14px; background: #f3f8f3; }
+.add-company-card h2 { margin: 0 0 6px; font-size: 16px; }
+.add-company-card p:last-child { margin: 0; color: #68756c; font-size: 11px; line-height: 1.5; }
+.watchlist-add-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: end; }
+.watchlist-add-form select { min-height: 41px; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: 8px; background: #fbfcf9; color: var(--ink); font-size: 12px; outline: 0; }
+.watchlist-add-form .button { justify-self: start; }
 
 @media (max-width: 1050px) {
   .main { padding-inline: 26px; }
@@ -352,6 +381,7 @@ button.keyword.selected { border-color: #9acbaa; background: #e5f5e9; color: #21
   .job-date, .row-arrow { display: none; }
   .match-score { text-align: right; }
   .field-grid, .extension-layout, .add-source { grid-template-columns: 1fr; }
+  .watchlist-grid, .watchlist-add-form, .add-company-card { grid-template-columns: 1fr; }
   .tailor-modal { padding: 20px; }
   .target-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .resume-summary { grid-template-columns: repeat(2, 1fr); }
@@ -387,6 +417,9 @@ button.keyword.selected { border-color: #9acbaa; background: #e5f5e9; color: #21
   .target-overview > div { border-right: 0; border-bottom: 1px solid #d7e4d9; }
   .target-overview > div:last-child { border-bottom: 0; }
   .target-grid { grid-template-columns: 1fr; }
+  .watchlist-summary { grid-template-columns: 1fr; }
+  .watchlist-summary > div { border-right: 0; border-bottom: 1px solid #d6e4d8; }
+  .watchlist-summary > div:last-child { border-bottom: 0; }
   .job-card-main { gap: 11px; }
   .card-logo { width: 45px; height: 45px; font-size: 12px; }
   .job-card h3 { font-size: 17px; }
