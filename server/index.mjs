@@ -9,6 +9,8 @@ import { scoreJob, stripHtml } from "./lib/matcher.mjs";
 import { tailorResume } from "./lib/resume-tailor.mjs";
 import { buildCoverLetter } from "./lib/cover-letter.mjs";
 import { localModelStatus, readLocalModelLogs, reviewJobWithLocalModel, LOCAL_LOG_PATH } from "./lib/local-llm.mjs";
+import { buildProfileCompact, hashCompact, PROFILE_COMPACT_VERSION } from "./lib/profile-compact.mjs";
+import { extractJobFeatures, hashJobFeatures, JOB_FEATURES_VERSION } from "./lib/job-features.mjs";
 
 const PORT = Number(process.env.JOB_AGENT_API_PORT || 4010);
 const DB_PATH = resolve(process.env.JOB_AGENT_DB || "data/job-agent.sqlite");
@@ -24,6 +26,10 @@ db.exec("PRAGMA journal_mode=WAL");
 db.exec(`CREATE TABLE IF NOT EXISTS profile (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   data TEXT NOT NULL,
+  profile_compact_json TEXT NOT NULL DEFAULT '{}',
+  profile_compact_hash TEXT,
+  profile_compact_version INTEGER NOT NULL DEFAULT 1,
+  profile_compact_updated_at TEXT,
   updated_at TEXT NOT NULL
 )`);
 db.exec(`CREATE TABLE IF NOT EXISTS sources (
@@ -50,11 +56,28 @@ db.exec(`CREATE TABLE IF NOT EXISTS jobs (
   score INTEGER NOT NULL DEFAULT 0,
   verdict TEXT NOT NULL DEFAULT 'review',
   match_data TEXT NOT NULL DEFAULT '{}',
+  job_features_json TEXT NOT NULL DEFAULT '{}',
+  job_features_hash TEXT,
+  job_features_version INTEGER NOT NULL DEFAULT 1,
+  job_features_updated_at TEXT,
   status TEXT NOT NULL DEFAULT 'new',
   applied_at TEXT,
   UNIQUE(source_id, external_id),
   FOREIGN KEY(source_id) REFERENCES sources(id)
 )`);
+function ensureColumn(table, column, definition) {
+  if (!db.prepare(`PRAGMA table_info(${table})`).all().some((item) => item.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+ensureColumn("profile", "profile_compact_json", "TEXT NOT NULL DEFAULT '{}'");
+ensureColumn("profile", "profile_compact_hash", "TEXT");
+ensureColumn("profile", "profile_compact_version", "INTEGER NOT NULL DEFAULT 1");
+ensureColumn("profile", "profile_compact_updated_at", "TEXT");
+ensureColumn("jobs", "job_features_json", "TEXT NOT NULL DEFAULT '{}'");
+ensureColumn("jobs", "job_features_hash", "TEXT");
+ensureColumn("jobs", "job_features_version", "INTEGER NOT NULL DEFAULT 1");
+ensureColumn("jobs", "job_features_updated_at", "TEXT");
 db.exec("CREATE INDEX IF NOT EXISTS jobs_score_idx ON jobs(score DESC)");
 db.exec("CREATE INDEX IF NOT EXISTS jobs_status_idx ON jobs(status)");
 db.exec(`CREATE TABLE IF NOT EXISTS resumes (
@@ -171,7 +194,7 @@ db.prepare("UPDATE target_companies SET notes = 'Dream organization' WHERE compa
   if (profile.preferredTitles.length === 1 && profile.preferredTitles[0] === "software engineer") {
     profile.preferredTitles = ["software engineer", "software development engineer", "backend engineer", "backend developer", "platform engineer", "java engineer", "sde"];
     profile.preferredLocations = ["bengaluru", "bangalore", "india"];
-    db.prepare("UPDATE profile SET data = ?, updated_at = ? WHERE id = 1").run(JSON.stringify(profile), new Date().toISOString());
+    persistProfile(profile);
   }
 }
 
@@ -188,6 +211,27 @@ function getProfile() {
     }
   }
   return profile;
+}
+
+function persistProfile(profile, now = new Date().toISOString()) {
+  const compact = buildProfileCompact(profile);
+  db.prepare(`UPDATE profile SET data = ?, profile_compact_json = ?, profile_compact_hash = ?,
+    profile_compact_version = ?, profile_compact_updated_at = ?, updated_at = ? WHERE id = 1`)
+    .run(JSON.stringify(profile), JSON.stringify(compact), hashCompact(compact), PROFILE_COMPACT_VERSION, now, now);
+  return compact;
+}
+
+function getProfileCompact() {
+  const row = db.prepare("SELECT profile_compact_json FROM profile WHERE id = 1").get();
+  try { return JSON.parse(row?.profile_compact_json || "{}"); } catch { return buildProfileCompact(getProfile()); }
+}
+
+function jobFeaturesFor(job) {
+  try {
+    const parsed = JSON.parse(job.job_features_json || "{}");
+    if (parsed.version === JOB_FEATURES_VERSION) return parsed;
+  } catch {}
+  return extractJobFeatures(job);
 }
 
 function extractProfile(text, current) {
@@ -271,16 +315,20 @@ function publicJob(row) {
     ...row,
     description: stripHtml(row.description || ""),
     match: JSON.parse(row.match_data || "{}"),
+    job_features: jobFeaturesFor(row),
     match_data: undefined,
+    job_features_json: undefined,
   };
 }
 
 function rescoreAll(profile) {
   const rows = db.prepare("SELECT * FROM jobs").all();
-  const update = db.prepare("UPDATE jobs SET score = ?, verdict = ?, match_data = ? WHERE id = ?");
+  const update = db.prepare(`UPDATE jobs SET score = ?, verdict = ?, match_data = ?,
+    job_features_json = ?, job_features_hash = ?, job_features_version = ?, job_features_updated_at = ? WHERE id = ?`);
   for (const job of rows) {
+    const features = jobFeaturesFor(job);
     const match = scoreJob(job, profile);
-    update.run(match.score, match.verdict, JSON.stringify(match), job.id);
+    update.run(match.score, match.verdict, JSON.stringify(match), JSON.stringify(features), hashJobFeatures(features), JOB_FEATURES_VERSION, new Date().toISOString(), job.id);
   }
 }
 
@@ -302,11 +350,12 @@ function repairStoredResume() {
   db.prepare("UPDATE resumes SET raw_text = ?, sections = ?, updated_at = ? WHERE id = 1")
     .run(rawText, JSON.stringify(reparsed), now);
   const profile = extractProfile(rawText, getProfile());
-  db.prepare("UPDATE profile SET data = ?, updated_at = ? WHERE id = 1").run(JSON.stringify(profile), now);
+  persistProfile(profile, now);
   rescoreAll(profile);
 }
 
 repairStoredResume();
+persistProfile(getProfile());
 rescoreAll(getProfile());
 
 async function syncSource(source, profile) {
@@ -335,13 +384,16 @@ async function syncSource(source, profile) {
     }
     const upsert = db.prepare(`INSERT INTO jobs (
       source_id, external_id, company, title, location, url, description,
-      published_at, updated_at, discovered_at, score, verdict, match_data
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      published_at, updated_at, discovered_at, score, verdict, match_data,
+      job_features_json, job_features_hash, job_features_version, job_features_updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(source_id, external_id) DO UPDATE SET
       title=excluded.title, location=excluded.location, url=excluded.url,
       description=excluded.description, published_at=excluded.published_at,
       updated_at=excluded.updated_at, score=excluded.score,
-      verdict=excluded.verdict, match_data=excluded.match_data`);
+      verdict=excluded.verdict, match_data=excluded.match_data,
+      job_features_json=excluded.job_features_json, job_features_hash=excluded.job_features_hash,
+      job_features_version=excluded.job_features_version, job_features_updated_at=excluded.job_features_updated_at`);
     let imported = 0;
     for (const item of postings) {
       const job = {
@@ -350,12 +402,14 @@ async function syncSource(source, profile) {
         location: item.location || "Not specified",
         description: stripHtml(item.description || ""),
       };
+      const features = extractJobFeatures(job);
       const match = scoreJob(job, profile);
       upsert.run(
         source.id, String(item.id), source.company, job.title, job.location,
         item.url, job.description, item.publishedAt || null,
         item.updatedAt || null, new Date().toISOString(), match.score,
-        match.verdict, JSON.stringify(match),
+        match.verdict, JSON.stringify(match), JSON.stringify(features), hashJobFeatures(features),
+        JOB_FEATURES_VERSION, new Date().toISOString(),
       );
       imported += 1;
     }
@@ -389,6 +443,7 @@ function publicLocalReviewBatch(batch) {
 
 async function runLocalReviewBatch(batch) {
   const profile = getProfile();
+  const profileCompact = getProfileCompact();
   let next = 0;
   const worker = async () => {
     while (next < batch.jobIds.length) {
@@ -396,7 +451,7 @@ async function runLocalReviewBatch(batch) {
       try {
         const job = db.prepare("SELECT * FROM jobs WHERE id = ?").get(jobId);
         if (!job) throw new Error("Job no longer exists");
-        const review = await reviewJobWithLocalModel({ job, profile, deterministicMatch: JSON.parse(job.match_data || "{}") });
+        const review = await reviewJobWithLocalModel({ job, profile, profileCompact, jobFeatures: jobFeaturesFor(job), deterministicMatch: JSON.parse(job.match_data || "{}") });
         batch.reviews[jobId] = review;
       } catch (error) {
         batch.errors[jobId] = error.message || "Local review failed";
@@ -454,10 +509,13 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/profile") {
       return json(res, 200, getProfile());
     }
+    if (req.method === "GET" && url.pathname === "/api/profile/compact") {
+      return json(res, 200, getProfileCompact());
+    }
     if (req.method === "PUT" && url.pathname === "/api/profile") {
       const incoming = await body(req);
       const profile = { ...getProfile(), ...incoming };
-      db.prepare("UPDATE profile SET data = ?, updated_at = ? WHERE id = 1").run(JSON.stringify(profile), new Date().toISOString());
+      persistProfile(profile);
       rescoreAll(profile);
       return json(res, 200, profile);
     }
@@ -499,7 +557,7 @@ const server = http.createServer(async (req, res) => {
         raw_text=excluded.raw_text, sections=excluded.sections, uploaded_at=excluded.uploaded_at, updated_at=excluded.updated_at`)
         .run(filename, originalPath, rawText, JSON.stringify(sections), now, now);
       const profile = extractProfile(rawText, getProfile());
-      db.prepare("UPDATE profile SET data = ?, updated_at = ? WHERE id = 1").run(JSON.stringify(profile), now);
+      persistProfile(profile, now);
       rescoreAll(profile);
       return json(res, 200, { resume: getResume(), profile });
     }
@@ -513,7 +571,7 @@ const server = http.createServer(async (req, res) => {
       db.prepare("UPDATE resumes SET raw_text = ?, sections = ?, updated_at = ? WHERE id = 1")
         .run(rawText, JSON.stringify(sections), now);
       const profile = { ...getProfile(), resumeText: rawText };
-      db.prepare("UPDATE profile SET data = ?, updated_at = ? WHERE id = 1").run(JSON.stringify(profile), now);
+      persistProfile(profile, now);
       rescoreAll(profile);
       return json(res, 200, { resume: getResume(), profile });
     }

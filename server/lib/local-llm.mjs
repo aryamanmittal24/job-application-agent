@@ -59,7 +59,7 @@ function extractJson(value) {
   return JSON.parse(candidate.slice(start, end + 1));
 }
 
-export async function reviewJobWithLocalModel({ job, profile, deterministicMatch }) {
+export async function reviewJobWithLocalModel({ job, profile, profileCompact, jobFeatures, deterministicMatch }) {
   const started = Date.now();
   const prompt = [
     "You are a conservative job-match reviewer. Never invent experience, skills, degree, work authorization, or location eligibility.",
@@ -68,8 +68,8 @@ export async function reviewJobWithLocalModel({ job, profile, deterministicMatch
     "Score each dimension from 0 to 100. Use realistic scores, not 0/1. Treat an explicit required qualification or seniority mismatch as more important than keyword overlap. Return at most 3 short evidence items and 3 missing must-haves.",
     `Deterministic match: ${JSON.stringify(deterministicMatch)}`,
     "/no_think",
-    `Profile: ${JSON.stringify({ yearsExperience: profile.yearsExperience, preferredTitles: profile.preferredTitles, preferredLocations: profile.preferredLocations, school: profile.school, degree: profile.degree, skills: profile.skills, achievements: profile.achievements })}`,
-    `Job: ${JSON.stringify({ title: job.title, company: job.company, location: job.location, description: String(job.description || "").slice(0, 5000) })}`,
+    `Profile compact representation (cached): ${JSON.stringify(profileCompact || { yearsExperience: profile.yearsExperience, targetRoles: profile.preferredTitles, preferredLocations: profile.preferredLocations, school: profile.school, degree: profile.degree, skills: profile.skills, achievements: profile.achievements })}`,
+    `Job features representation (cached): ${JSON.stringify(jobFeatures || { title: job.title, company: job.company, location: job.location, description: String(job.description || "").slice(0, 5000) })}`,
   ].join("\n\n");
   try {
     await log("request", { jobId: job.id, company: job.company, title: job.title });
