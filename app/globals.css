@@ -515,3 +515,39 @@ button.keyword.selected { border-color: #9acbaa; background: #e5f5e9; color: #21
   .detail-hero h2 { font-size: 37px; }
   .detail-meta { display: grid; gap: 10px; }
 }
+
+/* Local Qwen chat */
+.qwen-chat-page { max-width: 980px; }
+.privacy-chip.is-offline { background: #fff2e9; color: #a75524; border-color: #f1c8a8; }
+.qwen-chat-card { display: grid; gap: 16px; padding: 22px; border: 1px solid var(--line); border-radius: 18px; background: #fff; box-shadow: 0 12px 32px rgba(22, 39, 28, .05); }
+.qwen-chat-context { display: flex; align-items: center; gap: 12px; padding: 13px 15px; border: 1px solid #d5e9dd; border-radius: 12px; background: #f2fbf5; color: var(--green); }
+.qwen-chat-context div { display: grid; gap: 3px; }
+.qwen-chat-context strong { font-size: 13px; }
+.qwen-chat-context span { color: #708177; font-size: 12px; }
+.qwen-messages { display: grid; gap: 13px; min-height: 390px; max-height: 58vh; overflow: auto; padding: 8px 3px; }
+.qwen-empty { display: grid; place-items: center; align-content: center; gap: 9px; padding: 50px 20px; color: #839189; text-align: center; }
+.qwen-empty h2 { margin: 4px 0 0; color: var(--ink); font-size: 22px; }
+.qwen-empty p { max-width: 520px; margin: 0; line-height: 1.55; }
+.qwen-prompts { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
+.qwen-prompts button { padding: 9px 12px; border: 1px solid #d7e3da; border-radius: 999px; background: #fff; color: #315844; cursor: pointer; font: inherit; font-size: 12px; }
+.qwen-prompts button:hover { border-color: #9ec6aa; background: #f4fbf5; }
+.qwen-message { max-width: 78%; padding: 13px 15px; border: 1px solid var(--line); border-radius: 14px; background: #f8faf8; }
+.qwen-message.user { justify-self: end; border-color: #cde4d5; background: #eaf8ef; }
+.qwen-message-label { display: block; margin-bottom: 5px; color: #718078; font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.qwen-message p { margin: 0; white-space: pre-wrap; line-height: 1.55; font-size: 14px; }
+.qwen-message small { display: block; margin-top: 8px; color: #87938c; font-size: 10px; }
+.qwen-composer { display: grid; gap: 9px; padding-top: 14px; border-top: 1px solid var(--line); }
+.qwen-composer textarea { width: 100%; resize: vertical; min-height: 80px; padding: 13px; border: 1px solid #cfdcd2; border-radius: 11px; color: var(--ink); background: #fcfdfc; font: inherit; line-height: 1.45; outline: none; }
+.qwen-composer textarea:focus { border-color: #68a77d; box-shadow: 0 0 0 3px rgba(104, 167, 125, .13); }
+.qwen-composer > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.qwen-composer > div > span { color: #849087; font-size: 11px; }
+.qwen-thinking { color: #6c7b72; }
+.qwen-thinking i { display: inline-block; width: 4px; height: 4px; margin-left: 3px; border-radius: 50%; background: #58956b; animation: qwen-pulse 1s infinite ease-in-out; }
+.qwen-thinking i:nth-of-type(2) { animation-delay: .16s; }.qwen-thinking i:nth-of-type(3) { animation-delay: .32s; }
+@keyframes qwen-pulse { 0%, 70%, 100% { opacity: .25; transform: translateY(0); } 35% { opacity: 1; transform: translateY(-2px); } }
+@media (max-width: 700px) {
+  .qwen-chat-card { padding: 14px; }
+  .qwen-message { max-width: 92%; }
+  .qwen-composer > div { align-items: flex-end; flex-direction: column; }
+  .qwen-composer .button { width: 100%; justify-content: center; }
+}

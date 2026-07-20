@@ -8,7 +8,7 @@ import { PDFParse } from "pdf-parse";
 import { scoreJob, stripHtml } from "./lib/matcher.mjs";
 import { tailorResume } from "./lib/resume-tailor.mjs";
 import { buildCoverLetter } from "./lib/cover-letter.mjs";
-import { localModelStatus, readLocalModelLogs, reviewJobWithLocalModel, LOCAL_LOG_PATH } from "./lib/local-llm.mjs";
+import { chatWithLocalModel, localModelStatus, readLocalModelLogs, reviewJobWithLocalModel, LOCAL_LOG_PATH } from "./lib/local-llm.mjs";
 import { buildProfileCompact, hashCompact, PROFILE_COMPACT_VERSION } from "./lib/profile-compact.mjs";
 import { extractJobFeatures, hashJobFeatures, JOB_FEATURES_VERSION } from "./lib/job-features.mjs";
 
@@ -476,6 +476,14 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/api/llm/status") {
       return json(res, 200, await localModelStatus());
+    }
+    if (req.method === "POST" && url.pathname === "/api/llm/chat") {
+      const incoming = await body(req);
+      const message = String(incoming.message || "").trim();
+      if (!message) return json(res, 400, { error: "Write a message first" });
+      if (message.length > 6000) return json(res, 400, { error: "Message is too long (maximum 6,000 characters)" });
+      const result = await chatWithLocalModel({ message, history: incoming.history, profileCompact: getProfileCompact() });
+      return json(res, 200, result);
     }
     if (req.method === "GET" && url.pathname === "/api/llm/logs") {
       return json(res, 200, { path: LOCAL_LOG_PATH, entries: await readLocalModelLogs(Number(url.searchParams.get("limit") || 80)) });

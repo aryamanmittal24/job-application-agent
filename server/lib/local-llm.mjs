@@ -100,6 +100,36 @@ export async function reviewJobWithLocalModel({ job, profile, profileCompact, jo
   }
 }
 
+export async function chatWithLocalModel({ message, history = [], profileCompact }) {
+  const started = Date.now();
+  const safeHistory = Array.isArray(history)
+    ? history.slice(-12).map((item) => ({ role: item?.role === "assistant" ? "assistant" : "user", content: String(item?.content || "").slice(0, 4000) }))
+    : [];
+  const prompt = [
+    "You are Qwen3, a helpful private job-search assistant.",
+    "Answer the user's question clearly and honestly. Use the profile context only as background; never invent résumé facts, job details, or application answers. If information is missing, say so.",
+    `Cached profile context: ${JSON.stringify(profileCompact || {})}`,
+    "Conversation history:",
+    ...safeHistory.map((item) => `${item.role === "assistant" ? "Assistant" : "User"}: ${item.content}`),
+    `User: ${String(message || "").trim().slice(0, 6000)}`,
+    "Assistant:",
+  ].join("\n\n");
+  try {
+    await log("chat_request", { messageChars: String(message || "").length, historyMessages: safeHistory.length });
+    const data = await ollama("/api/generate", {
+      method: "POST",
+      body: JSON.stringify({ model: LOCAL_MODEL, prompt, stream: false, think: false, options: { temperature: 0.2, num_ctx: 8192, num_predict: 512 } }),
+    });
+    const response = String(data.response || "").trim();
+    if (!response) throw new Error("Local model returned an empty response");
+    await log("chat_response", { durationMs: Date.now() - started, responseChars: response.length });
+    return { response, durationMs: Date.now() - started, model: LOCAL_MODEL };
+  } catch (error) {
+    await log("chat_error", { durationMs: Date.now() - started, error: error.message });
+    throw error;
+  }
+}
+
 export async function readLocalModelLogs(limit = 80) {
   try {
     const text = await readFile(LOCAL_LOG_PATH, "utf8");

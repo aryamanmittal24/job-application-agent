@@ -3,9 +3,9 @@
 import {
   ArrowUpRight, Bookmark, BriefcaseBusiness, Check, ChevronRight, CircleAlert, Bot,
   Database, ExternalLink, FilePenLine, FileText, GraduationCap, LayoutDashboard,
-  MapPin, Mail, Clock3, CalendarDays, Plus, RefreshCw, Search, Settings2, SlidersHorizontal, Sparkles, Upload, UserRound, WandSparkles, X,
+  MapPin, Mail, Clock3, CalendarDays, MessageCircle, Plus, RefreshCw, Search, Settings2, SlidersHorizontal, Sparkles, Upload, UserRound, WandSparkles, X,
 } from "lucide-react";
-import { Fragment, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 const API = "http://127.0.0.1:4010/api";
 
@@ -27,7 +27,8 @@ type Profile = {
 };
 
 type Stats = { total: number; strong: number; saved: number; applied: number };
-type View = "jobs" | "saved" | "applications" | "resume" | "profile" | "sources" | "extension";
+type View = "jobs" | "saved" | "applications" | "resume" | "profile" | "sources" | "extension" | "qwen";
+type ChatMessage = { role: "user" | "assistant"; content: string; durationMs?: number };
 type LocalReviewBatch = {
   id: string; status: "running" | "completed" | "completed_with_errors"; total: number; done: number;
   reviews: Record<string, LocalReview>; errors: Record<string, string>; concurrency: number;
@@ -228,6 +229,7 @@ export function JobDashboard() {
           <NavButton active={view === "profile"} icon={<UserRound size={17} />} label="My profile" onClick={() => setView("profile")} />
           <NavButton active={view === "sources"} icon={<Database size={17} />} label="Job sources" onClick={() => setView("sources")} />
           <NavButton active={view === "extension"} icon={<WandSparkles size={17} />} label="Autofill extension" onClick={() => setView("extension")} />
+          <NavButton active={view === "qwen"} icon={<MessageCircle size={17} />} label="Ask Qwen" onClick={() => setView("qwen")} />
         </nav>
         <div className="sidebar-foot">
           <span className={`status-dot ${online ? "is-online" : ""}`} />
@@ -247,6 +249,8 @@ export function JobDashboard() {
           <SourcesView onSync={sync} syncing={syncing} />
         ) : view === "extension" ? (
           <ExtensionView />
+        ) : view === "qwen" ? (
+          <QwenChatView />
         ) : (
           <>
             <header className="topbar">
@@ -567,4 +571,50 @@ function LocalReviewView() {
   useEffect(() => { setReview(null); setDurationMs(null); setMessage(""); }, [selectedId]);
   const dimensions = review ? [["JD fit", review.jdFit], ["Experience", review.experienceFit], ["Qualifications", review.qualificationFit], ["Location", review.locationFit]] as [string, number][] : [];
   return <div className="settings-page ai-review-page"><header className="settings-header"><div><p className="eyebrow">Local model workspace</p><h1>AI review queue</h1><p>Compare the explainable matcher with Qwen3 only when a role deserves a closer look. Nothing is sent to a cloud model.</p></div><span className="privacy-chip"><Bot size={14} /> Qwen3 · 1.7B</span></header>{message && <div className="notice"><CircleAlert size={15} />{message}</div>}<div className="review-workspace"><section className="review-queue"><div className="review-queue-heading"><div><h2>Review queue</h2><p>Top 25 roles scoring 55 or higher</p></div><span>{jobs.length} roles</span></div>{loading ? <LoadingRows /> : jobs.length ? jobs.map((job) => <button className={`review-queue-item ${job.id === selectedId ? "active" : ""}`} key={job.id} onClick={() => setSelectedId(job.id)}><span className="company-logo">{initials(job.company)}</span><span><strong>{job.title}</strong><small>{job.company} · {job.location}</small></span><b>{job.score}%</b></button>) : <p className="muted">No review candidates yet.</p>}</section><section className="review-focus">{selected ? <><div className="review-focus-heading"><div><p className="eyebrow">Selected role</p><h2>{selected.title}</h2><p>{selected.company} · {selected.location}</p></div><button className="button primary" onClick={runReview} disabled={running}><Bot size={16} />{running ? "Running locally…" : review ? "Run again" : "Run Qwen review"}</button></div><div className="review-panes"><article className="review-pane deterministic-review-pane"><div className="pane-label">Deterministic matcher</div><strong className="review-score">{selected.score}%</strong><span className="review-verdict">{selected.verdict === "strong" ? "Strong match" : selected.verdict === "possible" ? "Good match" : "Review match"}</span><div className="breakdown-lines"><span>Matched skills <b>{selected.match.matchedSkills?.length || 0}</b></span><span>Experience requirement <b>{selected.match.experienceNeeded ? `${selected.match.experienceNeeded}+ yrs` : "Flexible"}</b></span></div><ul className="review-reasons">{(selected.match.reasons || []).slice(0, 4).map((reason) => <li key={reason}><Check size={14} />{reason}</li>)}</ul><small>Fast and explainable. Runs during sync/rescore.</small></article><article className="review-pane qwen-review-pane"><div className="pane-label"><Bot size={14} /> Qwen3 local review</div>{!review ? <div className="review-empty"><strong>Not run for this role</strong><p>Use the button above to ask the local model for a second opinion across JD, experience, qualifications, and location.</p></div> : <><div className="review-score-row"><strong>{Math.round(dimensions.reduce((sum, [, value]) => sum + value, 0) / dimensions.length)}%</strong><span>{review.recommendation === "apply" ? "Worth applying" : review.recommendation === "skip" ? "Skip" : "Review"}</span></div><div className="breakdown-lines">{dimensions.map(([label, value]) => <Fragment key={label}><span>{label}<b>{value}%</b></span><i><em style={{ width: `${value}%` }} /></i></Fragment>)}</div><div className="review-columns"><div><h3>Missing must-haves</h3>{review.missingMustHaves.length ? <ul>{review.missingMustHaves.map((item) => <li key={item}>{item}</li>)}</ul> : <p>None detected.</p>}</div><div><h3>Evidence</h3>{review.evidence.length ? <ul>{review.evidence.slice(0, 5).map((item) => <li key={item}>{item}</li>)}</ul> : <p>None returned.</p>}</div></div><small>{review.confidence} confidence · completed in {durationMs ? `${Math.round(durationMs / 100) / 10}s` : "—"}</small></>}</article></div></> : <div className="empty-state"><Bot size={28} /><h3>Select a role</h3><p>Choose a job from the review queue to compare both matchers.</p></div>}</section></div></div>;
+}
+
+function QwenChatView() {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [model, setModel] = useState("qwen3:1.7b");
+  const [online, setOnline] = useState<boolean | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api<{ available: boolean; installed: boolean; model: string }>("/llm/status")
+      .then((status) => { setOnline(status.available && status.installed); setModel(status.model); })
+      .catch(() => setOnline(false));
+  }, []);
+
+  async function send(event?: FormEvent) {
+    event?.preventDefault();
+    const message = draft.trim();
+    if (!message || busy) return;
+    const nextMessages = [...messages, { role: "user" as const, content: message }];
+    setMessages(nextMessages); setDraft(""); setBusy(true); setError("");
+    try {
+      const result = await api<{ response: string; durationMs: number; model: string }>("/llm/chat", {
+        method: "POST", body: JSON.stringify({ message, history: messages }),
+      });
+      setMessages([...nextMessages, { role: "assistant", content: result.response, durationMs: result.durationMs }]);
+      setModel(result.model); setOnline(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Qwen could not answer");
+      setOnline(false);
+    } finally { setBusy(false); }
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); }
+  }
+
+  return <div className="settings-page qwen-chat-page"><header className="settings-header"><div><p className="eyebrow">Private local assistant</p><h1>Ask Qwen</h1><p>Chat with your local model about roles, résumé fit, applications, or interview preparation. Your messages stay on this Mac.</p></div><span className={`privacy-chip ${online === false ? "is-offline" : ""}`}><Bot size={14} /> {online === false ? "Model offline" : model}</span></header>
+    {online === false && <div className="notice"><CircleAlert size={15} /><span>Qwen is not available. Start Ollama and make sure <code>{model}</code> is installed.</span></div>}
+    {error && <div className="notice"><CircleAlert size={15} />{error}</div>}
+    <section className="qwen-chat-card"><div className="qwen-chat-context"><Bot size={20} /><div><strong>Profile context is included automatically</strong><span>Qwen receives your cached profile summary, not your full private database.</span></div></div>
+      <div className="qwen-messages" aria-live="polite">{messages.length === 0 ? <div className="qwen-empty"><MessageCircle size={28} /><h2>What would you like to know?</h2><p>Try “Which of my saved roles should I prioritize?” or “Explain the missing skills for this type of SDE2 role.”</p><div className="qwen-prompts"><button onClick={() => setDraft("Which roles should I prioritize applying to first?")}>Prioritize my roles</button><button onClick={() => setDraft("What skills should I strengthen for SDE2 backend roles?")}>Find skill gaps</button><button onClick={() => setDraft("Help me prepare for a backend engineering interview.")}>Interview prep</button></div></div> : messages.map((item, index) => <article className={`qwen-message ${item.role}`} key={`${item.role}-${index}`}><span className="qwen-message-label">{item.role === "user" ? "You" : "Qwen3"}</span><p>{item.content}</p>{item.durationMs ? <small>{Math.round(item.durationMs / 100) / 10}s · local response</small> : null}</article>)}{busy && <article className="qwen-message assistant"><span className="qwen-message-label">Qwen3</span><p className="qwen-thinking">Thinking locally<span> · </span><i /><i /><i /></p></article>}</div>
+      <form className="qwen-composer" onSubmit={send}><textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={onKeyDown} placeholder="Ask Qwen about your job search…" rows={3} maxLength={6000} disabled={busy} /><div><span>Enter to send · Shift+Enter for a new line</span><button className="button primary" disabled={!draft.trim() || busy}><MessageCircle size={16} />{busy ? "Running locally…" : "Send"}</button></div></form>
+    </section>
+  </div>;
 }
